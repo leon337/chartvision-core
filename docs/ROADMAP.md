@@ -10,7 +10,7 @@
 |---|---|---|
 | 0 | Foundation | ✅ PASS |
 | 1 | Replay MVP | ✅ PASS |
-| 2 | Visual Observer MVP | ⬜ PENDING |
+| 2 | Visual Observer MVP | ✅ PASS |
 | 3 | Candle Reconstruction MVP | ⬜ PENDING |
 | 4 | Temporal Memory MVP | ⬜ PENDING |
 | 5 | Market Features MVP | ⬜ PENDING |
@@ -104,26 +104,43 @@ Reproduzir um dataset OHLC de forma determinística em um gráfico controlado.
 
 ---
 
-## FASE 2 — VISUAL OBSERVER MVP — ⬜ PENDING
+## FASE 2 — VISUAL OBSERVER MVP — ✅ PASS
 
 ### Objetivo
 Observar o gráfico renderizado estritamente como imagem.
 
-### Entregas
-- `CaptureService`;
-- captura da região do gráfico;
-- `ChartDetector`;
-- `CandleDetector` visual inicial;
-- detecção de mudança de frame;
-- confiança visual.
+### Entregas concluídas
+- `CaptureService` com captura/crop da região controlada, hash de pixels, detecção de mudança e intervalo padrão de 5 segundos;
+- `ChartDetector` para área útil do gráfico, região de candles e localização visual da escala de preço;
+- `CandleDetector` visual inicial para X, corpo, pavios, largura, direção e confiança;
+- contratos de geometria, confiança, qualidade e falhas explícitas;
+- `OpenCVVisionProvider` com entrada somente `image: bytes`;
+- cenário visual controlado de referência e testes de fronteira arquitetural.
 
-### Critérios de aceite
-- módulo visual não pode acessar OHLC do `ReplaySource`;
-- candles visíveis devem ser identificados no cenário de referência;
-- falhas de leitura devem gerar estado explícito, nunca dados inventados.
+### Evidência de fechamento
+- branch `phase-2-visual-observer-mvp`;
+- PR `#3 — feat: complete Phase 2 Visual Observer MVP` — merged;
+- HEAD técnico `83d5b8dc7c94fdc472a3049bb30f835454e45d1a`;
+- merge em `main` `afc028a6c966ec8be628dee59b9aa432ebd8921c`;
+- CI técnico run `#34` / `31407809004` — SUCCESS;
+- CI de PR run `#35` / `31408022011` — SUCCESS;
+- CI pós-merge run `#36` / `31408244075` — SUCCESS;
+- `ruff check app` — PASS;
+- `pytest -q` — 19 testes aprovados;
+- `npm run build` — PASS;
+- stack Docker completa — PASS.
 
-### Autorização
-É a próxima fase autorizável, exclusivamente em novo chat dedicado e somente após novo `chartvision-phase-start` resultar em READY.
+### Critérios de aceite verificados
+- módulo visual recebe imagem/pixels e não acessa OHLC do `ReplaySource` nem Ground Truth;
+- cenário visual controlado identifica os 3 candles visíveis de referência com geometria, direção e confiança;
+- gráfico ausente, imagem de baixa qualidade, escala não localizada e ausência de candles geram estados explícitos sem dados inventados;
+- captura gera hash e mudança/não mudança de frame, mantendo 5 segundos como intervalo padrão;
+- não existe conversão pixel → preço, tracking, normalização ou reconstrução OHLC nesta fase.
+
+### Limitações preservadas
+- detector inicial calibrado para tema/tamanho/cores controlados do v1;
+- persistência temporal continua reservada à FASE 4;
+- `PriceMapper`, `ChartTracker`, `Normalizer` e reconstrução OHLC permanecem para a FASE 3.
 
 ---
 
@@ -149,6 +166,9 @@ Converter elementos visuais em candles normalizados e compará-los ao Ground Tru
 
 ### Gate
 Não avançar se a reconstrução não estiver estável no dataset de referência.
+
+### Autorização
+É a próxima fase autorizável após o PASS formal da FASE 2, exclusivamente em novo chat dedicado e após novo `chartvision-phase-start` resultar em READY.
 
 ---
 

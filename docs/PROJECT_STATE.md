@@ -7,10 +7,10 @@
 ## Estado atual
 
 - **Versão de planejamento:** v1 congelado
-- **Fase atual concluída:** FASE 1 — REPLAY MVP
+- **Fase atual concluída:** FASE 2 — VISUAL OBSERVER MVP
 - **Status:** ✅ PASS
-- **Últimos PASS sequenciais:** FASE 0 — FOUNDATION; FASE 1 — REPLAY MVP
-- **Próxima fase autorizável:** FASE 2 — VISUAL OBSERVER MVP
+- **Últimos PASS sequenciais:** FASE 0 — FOUNDATION; FASE 1 — REPLAY MVP; FASE 2 — VISUAL OBSERVER MVP
+- **Próxima fase autorizável:** FASE 3 — CANDLE RECONSTRUCTION MVP
 - **Fases posteriores:** bloqueadas até PASS sequencial
 - **Issue mestra:** `#1 — MASTER — ChartVision Core v1 Roadmap`
 - **Modelo de trabalho:** um chat dedicado por fase + GitHub como memória oficial
@@ -45,25 +45,66 @@ Testes/evidências:
 - testes cobrem Pause, Resume e Reset;
 - API preserva o mesmo gate temporal do `ReplaySource`.
 
-## Limitações conhecidas da FASE 1
+## Evidência da FASE 2
 
-- o dataset de referência é intencionalmente pequeno e artificial, adequado ao laboratório determinístico inicial;
-- o estado do replay permanece em memória e representa uma única sessão controlada; persistência temporal pertence à FASE 4;
-- o frontend usa ritmo visual acelerado para solicitar avanços de 60 segundos virtuais, mas o relógio autoritativo é o relógio virtual do backend;
-- não existe captura, OpenCV, OCR ou reconstrução visual nesta fase, por desenho do roadmap.
+A FASE 2 implementou exclusivamente observação visual por pixels:
+- `CaptureService` com crop de região controlada, hash SHA-256 dos pixels, produção de `Frame`, detecção de mudança e intervalo padrão de 5 segundos;
+- contratos visuais para regiões, pavios, candles visuais, confiança, qualidade e estados de falha;
+- `ChartDetector` com OpenCV para localizar área útil do gráfico, região de candles e localização visual da escala de preço;
+- `CandleDetector` inicial para posição X, corpo, pavio superior/inferior, largura, direção visual e confiança;
+- `OpenCVVisionProvider` com entrada exclusivamente `image: bytes`;
+- estados explícitos `CHART_NOT_FOUND`, `LOW_IMAGE_QUALITY`, `PRICE_SCALE_NOT_FOUND` e `CANDLE_DETECTION_FAILED`;
+- cenário visual controlado de referência sem uso de OHLC/Ground Truth pelo detector.
+
+Referências técnicas:
+- branch de implementação: `phase-2-visual-observer-mvp`;
+- HEAD técnico: `83d5b8dc7c94fdc472a3049bb30f835454e45d1a`;
+- PR: `#3 — feat: complete Phase 2 Visual Observer MVP` — merged;
+- merge funcional em `main`: `afc028a6c966ec8be628dee59b9aa432ebd8921c`;
+- CI técnico: run `#34` / `31407809004` — SUCCESS;
+- CI do PR: run `#35` / `31408022011` — SUCCESS;
+- CI pós-merge: run `#36` / `31408244075` — SUCCESS.
+
+Testes/evidências:
+- `ruff check app` — PASS;
+- `pytest -q` — 19 testes aprovados;
+- `npm run build` — PASS;
+- stack Docker completa — PASS;
+- `CaptureService` testado para crop, hash, frame igual/diferente e gate de 5 segundos;
+- `ChartDetector` testado para gráfico válido, gráfico ausente, baixa qualidade e escala de preço ausente;
+- `CandleDetector` testado para geometria, direção, pavios, confiança, baixa qualidade e ausência de candles;
+- integração identifica 3 candles visíveis no cenário visual de referência;
+- teste arquitetural comprova que os módulos visuais não importam replay/`ChartSource` e que `observe` recebe apenas imagem.
+
+Critérios comprovados:
+- visão não acessa OHLC do `ReplaySource` nem Ground Truth;
+- candles visíveis são identificados no cenário de referência com geometria, direção e confiança;
+- falhas de leitura retornam estados explícitos sem fabricar dados;
+- captura produz hash e mudança de frame, mantendo intervalo inicial de 5 segundos;
+- `Frame` continua separado de candle e nenhuma lógica de tracking/reconstrução foi antecipada.
+
+## Limitações conhecidas da FASE 2
+
+- a detecção inicial é deliberadamente calibrada para o tema, tamanho e cores controlados do v1;
+- a fixture de referência é visual/sintética e replica o contrato visual do renderer controlado; generalização para outras fontes não faz parte da FASE 2;
+- `CaptureService` recebe bytes de imagem e recorta a região solicitada; automação de navegador/plataforma externa não faz parte do v1;
+- o estado usado para comparar hashes de frames é somente memória de processo; persistência temporal pertence à FASE 4;
+- não existe conversão pixel → preço;
+- `PriceMapper`, `ChartTracker` e `Normalizer` permanecem reservados à FASE 3;
+- não existe reconstrução OHLC, identificação aberto/fechado ou deduplicação temporal nesta fase.
 
 ## Próxima missão prevista
 
-### FASE 2 — VISUAL OBSERVER MVP
+### FASE 3 — CANDLE RECONSTRUCTION MVP
 
-A FASE 2 está autorizada a ser **aberta em novo chat dedicado**, mas não foi iniciada por este fechamento.
+A FASE 3 está autorizada apenas a ser **aberta em novo chat dedicado** após o fechamento formal da FASE 2.
 
-Antes de qualquer planejamento ou implementação da FASE 2:
-1. abrir o chat dedicado da FASE 2;
+Antes de qualquer planejamento ou implementação da FASE 3:
+1. abrir o chat dedicado da FASE 3;
 2. executar/reproduzir `chartvision-phase-start`;
 3. recuperar novamente branch, HEAD, CI, Issue Mestra, escopo, roadmap e decisões.
 
-Escopo da FASE 2 permanece o definido em `docs/ROADMAP.md` e `docs/vision_pipeline.md`.
+O PASS da FASE 2 não inicia automaticamente a FASE 3.
 
 ## Estado de implementação por fase
 
@@ -71,8 +112,8 @@ Escopo da FASE 2 permanece o definido em `docs/ROADMAP.md` e `docs/vision_pipeli
 |---|---|---|
 | 0 — Foundation | ✅ PASS | Baseline validada em CI e Docker |
 | 1 — Replay | ✅ PASS | Replay determinístico, controles, renderer e gate temporal validados |
-| 2 — Visual Observer | ⬜ PENDING | Próxima fase autorizável; exige novo PHASE START |
-| 3 — Candle Reconstruction | 🔒 BLOCKED | Aguarda FASE 2 |
+| 2 — Visual Observer | ✅ PASS | Captura, detecção visual, confiança e falhas explícitas validadas |
+| 3 — Candle Reconstruction | ⬜ PENDING | Próxima fase autorizável; exige novo PHASE START |
 | 4 — Temporal Memory | 🔒 BLOCKED | Aguarda FASE 3 |
 | 5 — Market Features | 🔒 BLOCKED | Aguarda FASE 4 |
 | 6 — Analysis Lab | 🔒 BLOCKED | Aguarda FASE 5 |
