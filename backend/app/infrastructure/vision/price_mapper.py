@@ -3,6 +3,9 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Iterable
 
+from app.domain.models.reconstruction import PriceCandleObservation
+from app.domain.models.vision import CandleDirection, VisualCandle
+
 
 _MIN_ANCHORS = 2
 _DEFAULT_MAX_SLOPE_DEVIATION_RATIO = Decimal("0.05")
@@ -78,6 +81,38 @@ class PriceMapper:
     @property
     def calibration_confidence(self) -> float:
         return self._calibration_confidence
+
+    def map_candle(
+        self,
+        candle: VisualCandle,
+        *,
+        visual_quality: float,
+    ) -> PriceCandleObservation:
+        high_y = candle.upper_wick.top_y if candle.upper_wick is not None else candle.body.y
+        low_y = (
+            candle.lower_wick.bottom_y
+            if candle.lower_wick is not None
+            else candle.body.bottom - 1
+        )
+        body_top_y = candle.body.y
+        body_bottom_y = candle.body.bottom - 1
+
+        if candle.direction is CandleDirection.UP:
+            open_y, close_y = body_bottom_y, body_top_y
+        else:
+            open_y, close_y = body_top_y, body_bottom_y
+
+        confidence = min(candle.confidence, self._calibration_confidence)
+        return PriceCandleObservation(
+            x=candle.x,
+            open=self.price_for_y(open_y),
+            high=self.price_for_y(high_y),
+            low=self.price_for_y(low_y),
+            close=self.price_for_y(close_y),
+            direction=candle.direction,
+            confidence=confidence,
+            visual_quality=visual_quality,
+        )
 
     def price_for_y(self, y: int) -> Decimal:
         if y < self._min_y or y > self._max_y:

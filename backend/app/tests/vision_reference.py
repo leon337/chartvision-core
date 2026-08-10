@@ -36,17 +36,23 @@ def reference_chart_png(*, include_candles: bool = True, include_scale: bool = T
         cv2.line(image, (x, TIME_SCALE_Y), (PRICE_SCALE_X, TIME_SCALE_Y), _bgr("#334155"), 1)
     cv2.rectangle(image, (x, y), (x + width - 1, y + height - 1), _bgr("#334155"), 1)
 
-    for label_y, text in ((y + 80, "105"), (y + 180, "100"), (y + 280, "95")):
-        cv2.putText(
-            image,
-            text,
-            (PRICE_SCALE_X + 12, label_y),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.45,
-            _bgr("#cbd5e1"),
-            1,
-            cv2.LINE_AA,
-        )
+    if include_scale:
+        for label_y, text in (
+            (y + 80, "105"),
+            (y + 180, "100"),
+            (y + 280, "95"),
+            (y + 380, "90"),
+        ):
+            cv2.putText(
+                image,
+                text,
+                (PRICE_SCALE_X + 12, label_y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.45,
+                _bgr("#cbd5e1"),
+                1,
+                cv2.LINE_AA,
+            )
 
     if include_candles:
         candles = (
