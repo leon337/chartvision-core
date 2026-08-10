@@ -122,10 +122,34 @@ Roadmap, escopo, decisões e estado atual devem ser persistidos neste repositór
 ## D-014 — Mudança de decisão exige registro
 **Status:** aprovado
 
-Nenhuma decisão acima deve ser silenciosamente substituída. Alterações exigem nova entrada neste arquivo explicando:
-- decisão anterior;
-- nova decisão;
-- motivo;
-- impacto no roadmap;
-- impacto no escopo;
-- data/commit de adoção.
+Nenhuma decisão aprovada deve ser silenciosamente substituída. Alterações exigem nova entrada neste arquivo explicando decisão anterior, nova decisão, motivo e impactos.
+
+---
+
+## D-015 — Um chat dedicado por fase
+**Status:** aprovado
+
+Cada fase do roadmap deve ser trabalhada preferencialmente em um chat/sessão dedicado. O chat da FASE 0 permanece como espaço de Foundation e governança transversal, sem implementar funcionalidades das fases posteriores.
+
+**Motivo:** reduzir mistura de contexto, facilitar retomada, diminuir interpretações cruzadas entre fases e tornar o handoff explícito.
+
+---
+
+## D-016 — Lifecycle de fase padronizado por skills
+**Status:** aprovado
+
+O repositório mantém duas skills instruction-only:
+
+- `chartvision-phase-start` para reconstruir contexto, validar autorização e produzir Phase Brief;
+- `chartvision-phase-close` para verificar Definition of Done, persistir memória e somente então permitir PASS.
+
+**Motivo:** transformar início e fechamento de fase em procedimentos repetíveis, auditáveis e resistentes à perda de contexto.
+
+---
+
+## D-017 — Instrução do Projeto ChatGPT versionada no repositório
+**Status:** aprovado
+
+A instrução usada no Projeto do ChatGPT deve possuir cópia canônica em `docs/CHATGPT_PROJECT_INSTRUCTIONS.md`.
+
+**Motivo:** impedir deriva entre configuração externa do ChatGPT e memória operacional do GitHub.

@@ -20,8 +20,18 @@ Leitura recomendada:
 4. [`docs/ROADMAP.md`](docs/ROADMAP.md) — fases 0–8 e gates;
 5. [`docs/DECISIONS.md`](docs/DECISIONS.md) — decisões arquiteturais aprovadas;
 6. [`docs/CONTINUITY_PROTOCOL.md`](docs/CONTINUITY_PROTOCOL.md) — protocolo de memória e handoff;
-7. [`docs/architecture.md`](docs/architecture.md) — arquitetura canônica;
-8. documentação específica da fase.
+7. [`docs/CHATGPT_PROJECT_INSTRUCTIONS.md`](docs/CHATGPT_PROJECT_INSTRUCTIONS.md) — cópia canônica da instrução do Projeto ChatGPT;
+8. [`docs/architecture.md`](docs/architecture.md) — arquitetura canônica;
+9. documentação específica da fase.
+
+## Lifecycle de fase
+
+Cada fase deve iniciar e encerrar por procedimentos padronizados:
+
+- `.agents/skills/chartvision-phase-start/SKILL.md` — valida estado real e produz o Phase Brief;
+- `.agents/skills/chartvision-phase-close/SKILL.md` — valida Definition of Done e persiste o handoff.
+
+O desenvolvimento utiliza preferencialmente um chat dedicado por fase.
 
 ## Foundation existente
 
@@ -35,7 +45,8 @@ Leitura recomendada:
 - testes iniciais;
 - CI;
 - validação da stack Docker completa;
-- contratos arquiteturais para as fases seguintes.
+- contratos arquiteturais para as fases seguintes;
+- governança e memória persistentes.
 
 ## Escopo do v1
 
@@ -68,4 +79,4 @@ make test
 
 ## Regra de continuidade
 
-Uma fase somente é concluída com evidência verificável, CI/testes e atualização da documentação de estado. Nenhum agente deve avançar para a fase seguinte apenas porque código foi escrito.
+Uma fase somente é concluída com evidência verificável, CI/testes, critérios de aceite, PHASE CLOSE e atualização da documentação de estado. Nenhum agente deve avançar para a fase seguinte apenas porque código foi escrito.

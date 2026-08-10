@@ -12,8 +12,9 @@ Antes de alterar código, leia nesta ordem:
 4. `docs/DECISIONS.md`
 5. `docs/CONTINUITY_PROTOCOL.md`
 6. documentação específica da fase atual
+7. `docs/CHATGPT_PROJECT_INSTRUCTIONS.md`, quando o trabalho vier de um Projeto do ChatGPT
 
-Depois consulte o estado real do GitHub: branch, HEAD, CI, issues e PRs relevantes.
+Depois consulte o estado real do GitHub: branch, HEAD, CI, issue mestra, issues e PRs relevantes.
 
 ## Regra principal
 
@@ -22,6 +23,7 @@ Implemente **somente a fase atualmente autorizada**.
 Não:
 - aumente escopo;
 - antecipe fases;
+- trabalhe em duas fases no mesmo ciclo de implementação;
 - troque stack sem decisão registrada;
 - adicione integração externa no v1;
 - marque fase como concluída sem testes e evidência;
@@ -29,35 +31,62 @@ Não:
 - introduza future leakage;
 - altere retrospectivamente análises registradas.
 
+## Organização dos chats/sessões
+
+O desenvolvimento utiliza preferencialmente **um chat dedicado por fase**.
+
+O chat da FASE 0 é o espaço de Foundation/governança e pode receber decisões transversais, mas não deve implementar funcionalidades das fases 1–8.
+
+Cada fase seguinte deve iniciar em um novo chat/sessão depois que a fase anterior estiver formalmente encerrada.
+
+Chats são ambiente de trabalho. GitHub é memória oficial.
+
+## Skills de lifecycle
+
+As skills oficiais do repositório são:
+
+- `.agents/skills/chartvision-phase-start/SKILL.md`
+- `.agents/skills/chartvision-phase-close/SKILL.md`
+
+Antes de planejar/implementar uma fase, execute ou reproduza o procedimento `chartvision-phase-start`.
+
+Antes de declarar uma fase concluída, execute ou reproduza o procedimento `chartvision-phase-close`.
+
+Uma skill nunca substitui os documentos oficiais nem permite ignorar evidências reais.
+
 ## Estado inicial registrado
 
 A FASE 0 — Foundation está concluída e validada.
 A próxima fase prevista é FASE 1 — Replay MVP.
-Sempre confirme isso em `docs/PROJECT_STATE.md` e no GitHub antes de agir.
+
+Este trecho é apenas referência histórica. Sempre confirme o estado em `docs/PROJECT_STATE.md` e no GitHub antes de agir.
 
 ## Método de trabalho
 
 Para cada fase:
 
-1. inspecione o estado real;
-2. confronte a tarefa com o escopo;
-3. implemente a menor solução que satisfaz os critérios;
-4. execute testes;
-5. observe evidências;
-6. corrija até PASS;
-7. atualize a documentação de continuidade;
-8. somente então encerre a fase.
+1. execute PHASE START;
+2. inspecione o estado real;
+3. confronte a missão com o escopo;
+4. implemente a menor solução que satisfaz os critérios;
+5. execute testes;
+6. observe evidências;
+7. corrija até satisfazer os critérios;
+8. execute PHASE CLOSE;
+9. atualize a memória persistente;
+10. somente então encerre a fase.
 
 ## Handoff obrigatório
 
 Ao concluir trabalho relevante, informe e persista:
 
-- arquivos alterados;
+- arquivos/componentes alterados;
 - testes executados;
 - resultados;
-- commit/PR;
+- commit/PR/HEAD;
 - CI;
-- pendências;
+- critérios de aceite;
+- pendências/limitações;
 - estado da fase;
 - próxima ação autorizada.
 

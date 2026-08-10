@@ -26,17 +26,43 @@ Uma fase somente muda para `PASS` quando:
 2. testes definidos para a fase passam;
 3. CI passa;
 4. critérios de aceite foram verificados com evidência;
-5. `docs/PROJECT_STATE.md` foi atualizado;
-6. a fase seguinte continua bloqueada até o PASS.
+5. ausência de regressão/scope creep relevante foi verificada;
+6. `docs/PROJECT_STATE.md` foi atualizado;
+7. este roadmap e a Issue Mestra #1 foram atualizados;
+8. o procedimento `chartvision-phase-close` resultou em PASS ou foi reproduzido integralmente.
 
 Executar código não significa concluir uma fase.
+
+## Lifecycle de cada fase
+
+Cada fase deve ser trabalhada preferencialmente em um chat/sessão dedicado.
+
+Antes de implementar:
+
+```text
+chartvision-phase-start
+→ recuperar estado real
+→ confirmar fase autorizada
+→ produzir Phase Brief
+```
+
+Depois da implementação e testes:
+
+```text
+chartvision-phase-close
+→ validar Definition of Done
+→ persistir memória
+→ PASS / FAIL / BLOCKED
+```
+
+O PASS de uma fase apenas autoriza abrir o chat da próxima fase. Não inicia automaticamente sua implementação.
 
 ---
 
 ## FASE 0 — FOUNDATION — ✅ PASS
 
 ### Objetivo
-Estabelecer a base executável e testável do projeto.
+Estabelecer a base executável, testável e governável do projeto.
 
 ### Entregas
 - monorepo;
@@ -50,10 +76,14 @@ Estabelecer a base executável e testável do projeto.
 - lint;
 - CI;
 - health checks;
-- contratos arquiteturais iniciais.
+- contratos arquiteturais iniciais;
+- memória persistente de projeto;
+- protocolo de continuidade;
+- Issue Mestra;
+- skills de início/fechamento de fase.
 
 ### Evidência atual
-O CI valida backend, frontend e a stack Docker completa, incluindo o endpoint `/health`.
+O CI valida backend, frontend, a stack Docker completa, o endpoint `/health` e a existência dos artefatos obrigatórios de governança.
 
 ---
 

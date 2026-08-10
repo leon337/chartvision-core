@@ -19,10 +19,13 @@ jobs:
             "docs/ROADMAP.md"
             "docs/DECISIONS.md"
             "docs/CONTINUITY_PROTOCOL.md"
+            "docs/CHATGPT_PROJECT_INSTRUCTIONS.md"
             "docs/architecture.md"
             "docs/replay_system.md"
             "docs/vision_pipeline.md"
             "docs/evaluation_metrics.md"
+            ".agents/skills/chartvision-phase-start/SKILL.md"
+            ".agents/skills/chartvision-phase-close/SKILL.md"
           )
           for file in "${required[@]}"; do
             test -s "$file" || { echo "Missing or empty mandatory memory file: $file"; exit 1; }
@@ -34,6 +37,16 @@ jobs:
           grep -q "FASE 8 — DASHBOARD MVP" docs/ROADMAP.md
           grep -q "FASE 0 — FOUNDATION" docs/PROJECT_STATE.md
           grep -q "FASE 1 — REPLAY MVP" docs/PROJECT_STATE.md
+      - name: Verify phase lifecycle skills
+        run: |
+          grep -q '^name: chartvision-phase-start$' .agents/skills/chartvision-phase-start/SKILL.md
+          grep -q '^description:' .agents/skills/chartvision-phase-start/SKILL.md
+          grep -q 'PHASE_START' .agents/skills/chartvision-phase-start/SKILL.md
+          grep -q '^name: chartvision-phase-close$' .agents/skills/chartvision-phase-close/SKILL.md
+          grep -q '^description:' .agents/skills/chartvision-phase-close/SKILL.md
+          grep -q 'PHASE_CLOSE' .agents/skills/chartvision-phase-close/SKILL.md
+          grep -q 'D-015 — Um chat dedicado por fase' docs/DECISIONS.md
+          grep -q 'D-016 — Lifecycle de fase padronizado por skills' docs/DECISIONS.md
 
   backend:
     runs-on: ubuntu-latest

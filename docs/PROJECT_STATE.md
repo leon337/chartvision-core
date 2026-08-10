@@ -12,6 +12,7 @@
 - **Próxima fase autorizável:** FASE 1 — REPLAY MVP
 - **Fases posteriores:** bloqueadas até PASS sequencial
 - **Issue mestra:** `#1 — MASTER — ChartVision Core v1 Roadmap`
+- **Modelo de trabalho:** um chat dedicado por fase + GitHub como memória oficial
 
 ## Evidência da FASE 0
 
@@ -31,13 +32,35 @@ Baseline funcional validada no commit:
 
 `f82877b63229eecaa17ec2db52b731a48d91dac4`
 
-Após essa baseline foram adicionados somente documentação, governança de continuidade e proteção da memória do projeto; nenhuma funcionalidade de FASE 1 foi implementada.
+Após essa baseline foram adicionados somente documentação e governança; nenhuma funcionalidade da FASE 1 foi implementada.
 
-O CI possui também um job `governance-memory` que impede a remoção silenciosa dos documentos obrigatórios de memória.
+A governança atual inclui:
+
+- `AGENTS.md`;
+- `docs/PROJECT_STATE.md`;
+- `docs/SCOPE.md`;
+- `docs/ROADMAP.md`;
+- `docs/DECISIONS.md`;
+- `docs/CONTINUITY_PROTOCOL.md`;
+- `docs/CHATGPT_PROJECT_INSTRUCTIONS.md`;
+- Issue Mestra #1;
+- CI `governance-memory`;
+- skill `chartvision-phase-start`;
+- skill `chartvision-phase-close`.
+
+## Organização operacional dos chats
+
+- Este chat/conversa de origem corresponde à **FASE 0 — Foundation / Governança**.
+- A FASE 1 deve ser iniciada em um **novo chat dedicado**.
+- O chat da FASE 0 pode continuar sendo utilizado para governança transversal, mas não para implementação funcional das fases 1–8.
+- Cada nova fase deve executar/reproduzir `chartvision-phase-start` antes de planejar ou implementar.
+- Cada fase deve executar/reproduzir `chartvision-phase-close` antes de declarar PASS.
 
 ## Próxima missão prevista
 
 ### FASE 1 — Replay MVP
+
+Antes de implementar, abrir o chat dedicado da FASE 1 e executar o protocolo PHASE START.
 
 Implementar exclusivamente:
 - `ReplaySource`;
@@ -72,14 +95,15 @@ A fase somente poderá ser marcada como PASS quando:
 6. não houver vazamento de dados futuros;
 7. documentação da fase for atualizada;
 8. este arquivo for atualizado para apontar a próxima fase;
-9. a issue-mestra `#1` for atualizada.
+9. a issue-mestra `#1` for atualizada;
+10. `chartvision-phase-close` resultar em PASS ou seu procedimento for reproduzido integralmente.
 
 ## Estado de implementação por fase
 
 | Fase | Estado | Observação |
 |---|---|---|
-| 0 — Foundation | ✅ PASS | Validada em CI e Docker |
-| 1 — Replay | ⬜ PENDING | Próxima |
+| 0 — Foundation | ✅ PASS | Validada em CI e Docker; governança persistida |
+| 1 — Replay | ⬜ PENDING | Próxima; iniciar em novo chat |
 | 2 — Visual Observer | 🔒 BLOCKED | Aguarda FASE 1 |
 | 3 — Candle Reconstruction | 🔒 BLOCKED | Aguarda FASE 2 |
 | 4 — Temporal Memory | 🔒 BLOCKED | Aguarda FASE 3 |
@@ -92,13 +116,14 @@ A fase somente poderá ser marcada como PASS quando:
 
 Ao final de cada fase:
 
-1. registrar o commit/PR de referência;
+1. registrar o commit/PR/HEAD de referência;
 2. registrar CI e testes relevantes;
 3. mudar a fase para `PASS` somente com evidência;
 4. desbloquear somente a fase imediatamente seguinte;
 5. registrar riscos ou pendências reais;
 6. atualizar a issue-mestra `#1`;
-7. garantir coerência com `ROADMAP.md`, `SCOPE.md` e `DECISIONS.md`.
+7. executar/reproduzir o protocolo PHASE CLOSE;
+8. garantir coerência com `ROADMAP.md`, `SCOPE.md` e `DECISIONS.md`.
 
 ## Regra de retomada
 
