@@ -113,3 +113,36 @@ A FASE 4 não implementa:
 - integrações externas ou execução financeira.
 
 Esses itens pertencem às fases posteriores do roadmap.
+
+## Evidência de fechamento
+
+### Referências
+- branch `phase-4-temporal-memory-mvp`;
+- HEAD técnico final `4e87314e7711464d3f08841c594330ecd235bd46`;
+- PR `#7 — feat: complete Phase 4 Temporal Memory MVP` — merged;
+- merge funcional em `main` `f0fac60c1ba0f24ddee7ed76f512600070acdf60`;
+- CI técnico da branch: run `#69` / `31438663542` — SUCCESS;
+- CI do PR: run `#70` / `31438809722` — SUCCESS;
+- CI pós-merge: run `#71` / `31438952349` — SUCCESS.
+
+### Testes
+- `ruff check app` — SUCCESS;
+- backend no job sem PostgreSQL: `47 passed, 31 skipped`;
+- os 31 testes PostgreSQL foram executados no job Docker dedicado: `31 passed`;
+- migrations Alembic `0001 → 0002 → 0003 → 0004` — SUCCESS;
+- `alembic downgrade base` + `alembic upgrade head` — SUCCESS;
+- frontend `npm run build` — SUCCESS;
+- stack Docker, PostgreSQL, backend e frontend — SUCCESS.
+
+### Aceite comprovado
+- replay histórico repetido não corrompe nem regride o candle canônico;
+- candle canônico não é duplicado dentro da sessão;
+- histórico por frame permanece disponível em snapshots imutáveis;
+- reconstrução divergente no mesmo timestamp lógico falha explicitamente;
+- candle fechado não pode ser silenciosamente alterado.
+
+### Scope review
+Nenhuma funcionalidade da FASE 5 foi implementada. `MarketFeatures`, direção, amplitude, retorno, volatilidade, HH/HL/LH/LL, tendência e lateralização permanecem fora desta fase.
+
+### Decisões
+Nenhuma nova decisão arquitetural foi necessária. As decisões já existentes sobre banco temporal estruturado e PostgreSQL são suficientes para este fechamento.
