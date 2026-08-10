@@ -7,104 +7,70 @@
 ## Estado atual
 
 - **Versão de planejamento:** v1 congelado
-- **Fase atual concluída:** FASE 0 — FOUNDATION
+- **Fase atual concluída:** FASE 1 — REPLAY MVP
 - **Status:** ✅ PASS
-- **Próxima fase autorizável:** FASE 1 — REPLAY MVP
+- **Próxima fase autorizável:** FASE 2 — VISUAL OBSERVER MVP
 - **Fases posteriores:** bloqueadas até PASS sequencial
 - **Issue mestra:** `#1 — MASTER — ChartVision Core v1 Roadmap`
 - **Modelo de trabalho:** um chat dedicado por fase + GitHub como memória oficial
 
-## Evidência da FASE 0
+## Evidência da FASE 1
 
-A Foundation possui:
-- FastAPI;
-- React + TypeScript + Vite;
-- PostgreSQL;
-- Docker Compose;
-- health check;
-- testes backend;
-- build frontend;
-- lint;
-- CI;
-- validação da stack completa em Docker.
+A FASE 1 implementou exclusivamente:
+- `ReplaySource` com relógio virtual explícito e determinístico;
+- dataset OHLC de referência controlado, com um ativo e timeframe de 1 minuto;
+- liberação de candles somente quando o `close_time` é alcançado;
+- API de replay com Start, Pause, Resume, Reset e avanço explícito;
+- `ChartRenderer` controlado com Lightweight Charts;
+- controles de replay no frontend;
+- empacotamento do dataset canônico na stack Docker.
 
-Baseline funcional validada no commit:
+Referências técnicas:
+- branch de implementação: `phase-1-replay-mvp`;
+- PR: `#2 — feat: complete Phase 1 Replay MVP`;
+- HEAD técnico antes do merge: `f335a35bbd028e4e8050d995fea8b4c5a907a0a5`;
+- merge em `main`: `821bce313295701fd69cd1925fa9f4a3726cb731`;
+- CI do HEAD técnico: run `#28` / `31373691602` — SUCCESS;
+- CI do PR: run `#29` / `31374069253` — SUCCESS;
+- CI pós-merge em `main`: run `#30` / `31374254176` — SUCCESS.
 
-`f82877b63229eecaa17ec2db52b731a48d91dac4`
+Testes/evidências:
+- `ruff check app` — PASS;
+- `pytest -q` — 8 testes aprovados;
+- `npm run build` — PASS;
+- stack Docker completa — PASS;
+- teste automatizado prova sequência idêntica para execuções equivalentes;
+- teste automatizado prova que 59 segundos não liberam o primeiro candle e que o candle só aparece ao atingir seu `close_time`;
+- testes cobrem Pause, Resume e Reset;
+- API preserva o mesmo gate temporal do `ReplaySource`.
 
-Após essa baseline foram adicionados somente documentação e governança; nenhuma funcionalidade da FASE 1 foi implementada.
+## Limitações conhecidas da FASE 1
 
-A governança atual inclui:
-
-- `AGENTS.md`;
-- `docs/PROJECT_STATE.md`;
-- `docs/SCOPE.md`;
-- `docs/ROADMAP.md`;
-- `docs/DECISIONS.md`;
-- `docs/CONTINUITY_PROTOCOL.md`;
-- `docs/CHATGPT_PROJECT_INSTRUCTIONS.md`;
-- Issue Mestra #1;
-- CI `governance-memory`;
-- skill `chartvision-phase-start`;
-- skill `chartvision-phase-close`.
-
-## Organização operacional dos chats
-
-- Este chat/conversa de origem corresponde à **FASE 0 — Foundation / Governança**.
-- A FASE 1 deve ser iniciada em um **novo chat dedicado**.
-- O chat da FASE 0 pode continuar sendo utilizado para governança transversal, mas não para implementação funcional das fases 1–8.
-- Cada nova fase deve executar/reproduzir `chartvision-phase-start` antes de planejar ou implementar.
-- Cada fase deve executar/reproduzir `chartvision-phase-close` antes de declarar PASS.
+- o dataset de referência é intencionalmente pequeno e artificial, adequado ao laboratório determinístico inicial;
+- o estado do replay permanece em memória e representa uma única sessão controlada; persistência temporal pertence à FASE 4;
+- o frontend usa ritmo visual acelerado para solicitar avanços de 60 segundos virtuais, mas o relógio autoritativo é o relógio virtual do backend;
+- não existe captura, OpenCV, OCR ou reconstrução visual nesta fase, por desenho do roadmap.
 
 ## Próxima missão prevista
 
-### FASE 1 — Replay MVP
+### FASE 2 — VISUAL OBSERVER MVP
 
-Antes de implementar, abrir o chat dedicado da FASE 1 e executar o protocolo PHASE START.
+A FASE 2 está autorizada a ser **aberta em novo chat dedicado**, mas não foi iniciada por este fechamento.
 
-Implementar exclusivamente:
-- `ReplaySource`;
-- dataset de referência;
-- `ChartRenderer`;
-- iniciar;
-- pausar;
-- continuar;
-- reiniciar;
-- replay determinístico.
+Antes de qualquer planejamento ou implementação da FASE 2:
+1. abrir o chat dedicado da FASE 2;
+2. executar/reproduzir `chartvision-phase-start`;
+3. recuperar novamente branch, HEAD, CI, Issue Mestra, escopo, roadmap e decisões.
 
-### Não implementar na FASE 1
-- OpenCV;
-- captura visual;
-- OCR;
-- reconstrução de candles por imagem;
-- banco temporal funcional além do necessário à Foundation;
-- features;
-- AnalysisEngine;
-- OutcomeEvaluator;
-- integrações externas.
-
-## Gate da FASE 1
-
-A fase somente poderá ser marcada como PASS quando:
-
-1. replay for determinístico;
-2. o mesmo dataset produzir a mesma sequência;
-3. os controles funcionarem;
-4. testes passarem;
-5. CI passar;
-6. não houver vazamento de dados futuros;
-7. documentação da fase for atualizada;
-8. este arquivo for atualizado para apontar a próxima fase;
-9. a issue-mestra `#1` for atualizada;
-10. `chartvision-phase-close` resultar em PASS ou seu procedimento for reproduzido integralmente.
+Escopo da FASE 2 permanece o definido em `docs/ROADMAP.md` e `docs/vision_pipeline.md`.
 
 ## Estado de implementação por fase
 
 | Fase | Estado | Observação |
 |---|---|---|
-| 0 — Foundation | ✅ PASS | Validada em CI e Docker; governança persistida |
-| 1 — Replay | ⬜ PENDING | Próxima; iniciar em novo chat |
-| 2 — Visual Observer | 🔒 BLOCKED | Aguarda FASE 1 |
+| 0 — Foundation | ✅ PASS | Baseline validada em CI e Docker |
+| 1 — Replay | ✅ PASS | Replay determinístico, controles, renderer e gate temporal validados |
+| 2 — Visual Observer | ⬜ PENDING | Próxima fase autorizável; exige novo PHASE START |
 | 3 — Candle Reconstruction | 🔒 BLOCKED | Aguarda FASE 2 |
 | 4 — Temporal Memory | 🔒 BLOCKED | Aguarda FASE 3 |
 | 5 — Market Features | 🔒 BLOCKED | Aguarda FASE 4 |
@@ -112,28 +78,17 @@ A fase somente poderá ser marcada como PASS quando:
 | 7 — Outcome Evaluation | 🔒 BLOCKED | Aguarda FASE 6 |
 | 8 — Dashboard | 🔒 BLOCKED | Aguarda FASE 7 |
 
-## Como atualizar este arquivo
-
-Ao final de cada fase:
-
-1. registrar o commit/PR/HEAD de referência;
-2. registrar CI e testes relevantes;
-3. mudar a fase para `PASS` somente com evidência;
-4. desbloquear somente a fase imediatamente seguinte;
-5. registrar riscos ou pendências reais;
-6. atualizar a issue-mestra `#1`;
-7. executar/reproduzir o protocolo PHASE CLOSE;
-8. garantir coerência com `ROADMAP.md`, `SCOPE.md` e `DECISIONS.md`.
-
 ## Regra de retomada
 
-Se um novo chat/agente não souber onde continuar, a resposta deve ser obtida nesta ordem:
-
-1. `docs/PROJECT_STATE.md`;
-2. `docs/ROADMAP.md`;
+Se um novo chat/agente não souber onde continuar, consultar nesta ordem:
+1. `AGENTS.md`;
+2. este arquivo;
 3. `docs/SCOPE.md`;
-4. `docs/DECISIONS.md`;
-5. issue-mestra `#1`;
-6. CI/commits/PRs reais do GitHub.
+4. `docs/ROADMAP.md`;
+5. `docs/DECISIONS.md`;
+6. `docs/CONTINUITY_PROTOCOL.md`;
+7. documentação da fase autorizada;
+8. Issue Mestra #1;
+9. branch, HEAD, CI, PRs/issues reais.
 
 Nunca inferir progresso apenas por conversa anterior.

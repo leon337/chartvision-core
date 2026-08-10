@@ -2,14 +2,14 @@
 
 > Status: **FROZEN v1**
 >
-> Este documento é a fonte de verdade para a sequência de desenvolvimento. Nenhuma fase pode ser pulada, ampliada ou reordenada sem uma decisão explícita registrada em `docs/DECISIONS.md` e atualização de `docs/SCOPE.md`.
+> Este documento é a fonte de verdade para a sequência de desenvolvimento. Nenhuma fase pode ser pulada, ampliada ou reordenada sem decisão explícita registrada em `docs/DECISIONS.md` e atualização de `docs/SCOPE.md`.
 
 ## Estado global
 
 | Fase | Nome | Estado |
 |---|---|---|
 | 0 | Foundation | ✅ PASS |
-| 1 | Replay MVP | ⬜ PENDING |
+| 1 | Replay MVP | ✅ PASS |
 | 2 | Visual Observer MVP | ⬜ PENDING |
 | 3 | Candle Reconstruction MVP | ⬜ PENDING |
 | 4 | Temporal Memory MVP | ⬜ PENDING |
@@ -21,7 +21,6 @@
 ## Regra de progressão
 
 Uma fase somente muda para `PASS` quando:
-
 1. a implementação do escopo da fase está completa;
 2. testes definidos para a fase passam;
 3. CI passa;
@@ -34,8 +33,6 @@ Uma fase somente muda para `PASS` quando:
 Executar código não significa concluir uma fase.
 
 ## Lifecycle de cada fase
-
-Cada fase deve ser trabalhada preferencialmente em um chat/sessão dedicado.
 
 Antes de implementar:
 
@@ -64,49 +61,46 @@ O PASS de uma fase apenas autoriza abrir o chat da próxima fase. Não inicia au
 ### Objetivo
 Estabelecer a base executável, testável e governável do projeto.
 
-### Entregas
-- monorepo;
-- backend FastAPI;
-- frontend React + TypeScript + Vite;
-- PostgreSQL;
-- Docker Compose;
-- configuração por ambiente;
-- logging estruturado;
-- testes iniciais;
-- lint;
-- CI;
-- health checks;
-- contratos arquiteturais iniciais;
-- memória persistente de projeto;
-- protocolo de continuidade;
-- Issue Mestra;
-- skills de início/fechamento de fase.
-
-### Evidência atual
-O CI valida backend, frontend, a stack Docker completa, o endpoint `/health` e a existência dos artefatos obrigatórios de governança.
+### Evidência
+Foundation validada com FastAPI, React + TypeScript + Vite, PostgreSQL, Docker Compose, health check, testes, lint, build frontend, CI e governança persistente.
 
 ---
 
-## FASE 1 — REPLAY MVP — ⬜ PENDING
+## FASE 1 — REPLAY MVP — ✅ PASS
 
 ### Objetivo
 Reproduzir um dataset OHLC de forma determinística em um gráfico controlado.
 
-### Entregas
+### Entregas concluídas
 - `ReplaySource`;
 - dataset de referência;
 - `ChartRenderer`;
-- iniciar;
-- pausar;
-- continuar;
-- reiniciar;
-- relógio de replay determinístico.
+- Start;
+- Pause;
+- Resume;
+- Reset;
+- relógio virtual determinístico;
+- gate temporal para impedir exposição antecipada de candles.
 
-### Critérios de aceite
-- o mesmo dataset gera exatamente a mesma sequência em execuções repetidas;
-- controles de replay funcionam;
-- nenhum componente de visão é implementado nesta fase;
-- nenhum dado de candle futuro é exposto ao consumidor antes do instante correto.
+### Evidência de fechamento
+- PR `#2 — feat: complete Phase 1 Replay MVP`;
+- HEAD técnico: `f335a35bbd028e4e8050d995fea8b4c5a907a0a5`;
+- merge em `main`: `821bce313295701fd69cd1925fa9f4a3726cb731`;
+- CI técnico run `#28` — SUCCESS;
+- CI de PR run `#29` — SUCCESS;
+- CI pós-merge run `#30` — SUCCESS;
+- `ruff check app` — PASS;
+- `pytest -q` — 8 testes aprovados;
+- `npm run build` — PASS;
+- stack Docker completa — PASS.
+
+### Critérios de aceite verificados
+- mesmo dataset/configuração gera exatamente a mesma sequência em execuções repetidas;
+- Pause congela progressão;
+- Resume continua do mesmo ponto;
+- Reset volta ao estado inicial;
+- nenhum componente de visão foi implementado;
+- candle futuro não é exposto antes do `close_time`.
 
 ---
 
@@ -128,6 +122,9 @@ Observar o gráfico renderizado estritamente como imagem.
 - candles visíveis devem ser identificados no cenário de referência;
 - falhas de leitura devem gerar estado explícito, nunca dados inventados.
 
+### Autorização
+É a próxima fase autorizável, exclusivamente em novo chat dedicado e somente após novo `chartvision-phase-start` resultar em READY.
+
 ---
 
 ## FASE 3 — CANDLE RECONSTRUCTION MVP — ⬜ PENDING
@@ -144,10 +141,7 @@ Converter elementos visuais em candles normalizados e compará-los ao Ground Tru
 - deduplicação temporal.
 
 ### Métricas obrigatórias
-- erro de Open;
-- erro de High;
-- erro de Low;
-- erro de Close;
+- erro de Open, High, Low e Close;
 - taxa de detecção;
 - acurácia de direção;
 - taxa de duplicação;
@@ -190,14 +184,11 @@ Gerar características estruturadas a partir dos candles normalizados.
 - amplitude;
 - retorno;
 - volatilidade simples;
-- HH;
-- HL;
-- LH;
-- LL;
+- HH, HL, LH, LL;
 - tendência básica;
 - lateralização básica.
 
-### Critérios de aceite
+### Critério de aceite
 Todos os cálculos devem possuir testes unitários determinísticos.
 
 ---
@@ -205,18 +196,13 @@ Todos os cálculos devem possuir testes unitários determinísticos.
 ## FASE 6 — ANALYSIS LAB MVP — ⬜ PENDING
 
 ### Objetivo
-Classificar o estado do gráfico em ambiente de replay, usando apenas informação disponível até o instante analisado.
+Classificar o estado do gráfico usando somente informação disponível até o instante analisado.
 
-### Estados de saída
+### Estados
 - `UP`;
 - `DOWN`;
 - `SIDEWAYS`;
 - `UNCERTAIN`.
-
-### Metadados
-- confiança;
-- evidências;
-- qualidade dos dados.
 
 ### Regra crítica
 É proibido qualquer `future leakage`.
@@ -251,14 +237,7 @@ A previsão original nunca pode ser alterada retrospectivamente.
 Disponibilizar uma interface única para observação e auditoria do laboratório.
 
 ### Tela única
-Deve apresentar:
-- gráfico;
-- estado do replay;
-- qualidade visual;
-- estado estrutural;
-- confiança;
-- observações;
-- métricas.
+Deve apresentar gráfico, estado do replay, qualidade visual, estado estrutural, confiança, observações e métricas.
 
 ### Fora desta fase
 Não criar páginas extras, multiusuário, notificações ou integrações externas.
@@ -295,17 +274,8 @@ AVALIAÇÃO
 DASHBOARD
 ```
 
-## Critérios finais de sucesso
-
-1. **Percepção** — o sistema observa corretamente o gráfico.
-2. **Memória** — constrói histórico confiável.
-3. **Interpretação** — transforma histórico em estado estruturado.
-4. **Verificação** — compara suas classificações com o que ocorreu depois.
-
 O sucesso do v1 não é definido por rentabilidade financeira.
 
----
-
-# Pós-v1 — somente após autorização explícita
+# Pós-v1
 
 A arquitetura deve permitir futuros `ChartSource`/adapters, mas nenhuma integração externa faz parte do v1. Qualquer evolução pós-v1 exige novo escopo e decisão registrada.
