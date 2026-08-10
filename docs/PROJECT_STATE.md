@@ -11,6 +11,7 @@
 - **Status:** ✅ PASS
 - **Próxima fase autorizável:** FASE 1 — REPLAY MVP
 - **Fases posteriores:** bloqueadas até PASS sequencial
+- **Issue mestra:** `#1 — MASTER — ChartVision Core v1 Roadmap`
 
 ## Evidência da FASE 0
 
@@ -26,11 +27,13 @@ A Foundation possui:
 - CI;
 - validação da stack completa em Docker.
 
-O CI #7 passou no commit:
+Baseline funcional validada no commit:
 
 `f82877b63229eecaa17ec2db52b731a48d91dac4`
 
-Após esse commit foram adicionados somente documentos de governança/memória; nenhuma funcionalidade de FASE 1 foi implementada.
+Após essa baseline foram adicionados somente documentação, governança de continuidade e proteção da memória do projeto; nenhuma funcionalidade de FASE 1 foi implementada.
+
+O CI possui também um job `governance-memory` que impede a remoção silenciosa dos documentos obrigatórios de memória.
 
 ## Próxima missão prevista
 
@@ -68,7 +71,8 @@ A fase somente poderá ser marcada como PASS quando:
 5. CI passar;
 6. não houver vazamento de dados futuros;
 7. documentação da fase for atualizada;
-8. este arquivo for atualizado para apontar a próxima fase.
+8. este arquivo for atualizado para apontar a próxima fase;
+9. a issue-mestra `#1` for atualizada.
 
 ## Estado de implementação por fase
 
@@ -93,7 +97,8 @@ Ao final de cada fase:
 3. mudar a fase para `PASS` somente com evidência;
 4. desbloquear somente a fase imediatamente seguinte;
 5. registrar riscos ou pendências reais;
-6. garantir coerência com `ROADMAP.md`, `SCOPE.md` e `DECISIONS.md`.
+6. atualizar a issue-mestra `#1`;
+7. garantir coerência com `ROADMAP.md`, `SCOPE.md` e `DECISIONS.md`.
 
 ## Regra de retomada
 
@@ -103,6 +108,7 @@ Se um novo chat/agente não souber onde continuar, a resposta deve ser obtida ne
 2. `docs/ROADMAP.md`;
 3. `docs/SCOPE.md`;
 4. `docs/DECISIONS.md`;
-5. CI/commits/PRs reais do GitHub.
+5. issue-mestra `#1`;
+6. CI/commits/PRs reais do GitHub.
 
 Nunca inferir progresso apenas por conversa anterior.
