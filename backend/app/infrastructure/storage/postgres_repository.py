@@ -3,21 +3,34 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime, timezone
 
-from sqlalchemy import text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session as OrmSession
 
-from app.domain.interfaces.storage_provider import FrameConflictError, SessionConflictError
+from app.domain.interfaces.storage_provider import (
+    CandleConflictError,
+    FrameConflictError,
+    ObservationConflictError,
+    SessionConflictError,
+)
+from app.domain.models.candle import Candle
 from app.domain.models.frame import Frame
+from app.domain.models.observation import Observation
 from app.domain.models.session import Session
-from app.infrastructure.db.models import FrameRecord, SessionRecord
+from app.infrastructure.db.models import (
+    CandleRecord,
+    CandleSnapshotRecord,
+    FrameRecord,
+    ObservationRecord,
+    SessionRecord,
+)
 from app.infrastructure.db.session import SessionLocal
 
 SessionFactory = Callable[[], OrmSession]
 
 
 class PostgresStorageRepository:
-    """PostgreSQL implementation of the current StorageProvider contract."""
+    """PostgreSQL implementation of the Phase 4 StorageProvider contract."""
 
     def __init__(self, session_factory: SessionFactory = SessionLocal) -> None:
         self._session_factory = session_factory
@@ -100,6 +113,238 @@ class PostgresStorageRepository:
         finally:
             db.close()
 
+    def save_observation(self, observation: Observation) -> None:
+        normalized = self._normalize_observation(observation)
+        db = self._session_factory()
+        try:
+            with db.begin():
+                existing = db.get(ObservationRecord, normalized.observation_id)
+                if existing is None:
+                    db.add(self._observation_to_record(normalized))
+                    db.flush()
+                    return
+
+                persisted = self._observation_to_domain(existing)
+                if persisted == normalized:
+                    return
+
+                raise ObservationConflictError(
+                    f"observation_id {normalized.observation_id!r} already exists with different data"
+                )
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+    def get_observation(self, observation_id: str) -> Observation | None:
+        db = self._session_factory()
+        try:
+            record = db.get(ObservationRecord, observation_id)
+            if record is None:
+                return None
+            return self._observation_to_domain(record)
+        finally:
+            db.close()
+
+    def save_candle(self, candle: Candle, *, observation_id: str) -> None:
+        normalized = self._normalize_candle(candle)
+        db = self._session_factory()
+        try:
+            with db.begin():
+                observation = db.get(ObservationRecord, observation_id)
+                if observation is None:
+                    raise ValueError(f"observation_id {observation_id!r} does not exist")
+                if observation.session_id != normalized.session_id:
+                    raise CandleConflictError(
+                        "observation and candle must belong to the same session"
+                    )
+
+                same_timestamp_snapshot = self._snapshot_at_timestamp(
+                    db,
+                    session_id=normalized.session_id,
+                    open_time=normalized.open_time,
+                    timestamp=observation.timestamp,
+                )
+                if (
+                    same_timestamp_snapshot is not None
+                    and self._snapshot_to_domain(same_timestamp_snapshot) != normalized
+                ):
+                    raise CandleConflictError(
+                        "same candle timestamp already has different reconstructed data"
+                    )
+
+                identity = (normalized.session_id, normalized.open_time)
+                existing = db.get(CandleRecord, identity)
+                if existing is None:
+                    db.add(self._candle_to_record(normalized))
+                    db.flush()
+                else:
+                    persisted = self._candle_to_domain(existing)
+                    if persisted != normalized:
+                        latest_timestamp = self._latest_snapshot_timestamp(
+                            db,
+                            session_id=normalized.session_id,
+                            open_time=normalized.open_time,
+                        )
+                        if (
+                            latest_timestamp is not None
+                            and observation.timestamp <= latest_timestamp
+                        ):
+                            self._validate_historical_candle(persisted, normalized)
+                        else:
+                            self._apply_candle_evolution(existing, persisted, normalized)
+                            db.flush()
+
+                snapshot_identity = (
+                    observation_id,
+                    normalized.session_id,
+                    normalized.open_time,
+                )
+                existing_snapshot = db.get(CandleSnapshotRecord, snapshot_identity)
+                if existing_snapshot is None:
+                    db.add(self._candle_to_snapshot(normalized, observation_id))
+                    db.flush()
+                elif self._snapshot_to_domain(existing_snapshot) != normalized:
+                    raise CandleConflictError(
+                        "persisted candle snapshot cannot be overwritten"
+                    )
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+    def get_candle(self, session_id: str, open_time: datetime) -> Candle | None:
+        normalized_open_time = self._normalize_datetime(open_time, "open_time")
+        db = self._session_factory()
+        try:
+            record = db.get(CandleRecord, (session_id, normalized_open_time))
+            if record is None:
+                return None
+            return self._candle_to_domain(record)
+        finally:
+            db.close()
+
+    def get_candles_for_frame(self, frame_id: str) -> tuple[Candle, ...]:
+        db = self._session_factory()
+        try:
+            statement = (
+                select(CandleSnapshotRecord)
+                .join(
+                    ObservationRecord,
+                    CandleSnapshotRecord.observation_id
+                    == ObservationRecord.observation_id,
+                )
+                .where(ObservationRecord.frame_id == frame_id)
+                .order_by(ObservationRecord.timestamp, CandleSnapshotRecord.open_time)
+            )
+            snapshots = db.scalars(statement).all()
+            return tuple(self._snapshot_to_domain(snapshot) for snapshot in snapshots)
+        finally:
+            db.close()
+
+    @classmethod
+    def _snapshot_at_timestamp(
+        cls,
+        db: OrmSession,
+        *,
+        session_id: str,
+        open_time: datetime,
+        timestamp: datetime,
+    ) -> CandleSnapshotRecord | None:
+        statement = (
+            select(CandleSnapshotRecord)
+            .join(
+                ObservationRecord,
+                CandleSnapshotRecord.observation_id == ObservationRecord.observation_id,
+            )
+            .where(
+                CandleSnapshotRecord.session_id == session_id,
+                CandleSnapshotRecord.open_time == open_time,
+                ObservationRecord.timestamp == timestamp,
+            )
+            .limit(1)
+        )
+        return db.scalars(statement).first()
+
+    @staticmethod
+    def _latest_snapshot_timestamp(
+        db: OrmSession,
+        *,
+        session_id: str,
+        open_time: datetime,
+    ) -> datetime | None:
+        statement = (
+            select(func.max(ObservationRecord.timestamp))
+            .join(
+                CandleSnapshotRecord,
+                CandleSnapshotRecord.observation_id == ObservationRecord.observation_id,
+            )
+            .where(
+                CandleSnapshotRecord.session_id == session_id,
+                CandleSnapshotRecord.open_time == open_time,
+            )
+        )
+        return db.execute(statement).scalar_one()
+
+    @classmethod
+    def _validate_historical_candle(cls, current: Candle, historical: Candle) -> None:
+        cls._validate_candle_identity(current, historical)
+        if historical.is_closed:
+            if not current.is_closed or historical != current:
+                raise CandleConflictError(
+                    "historical closed candle conflicts with the persisted final candle"
+                )
+            return
+        if historical.high > current.high or historical.low < current.low:
+            raise CandleConflictError(
+                "historical candle exceeds the persisted candle price range"
+            )
+
+    @classmethod
+    def _apply_candle_evolution(
+        cls,
+        record: CandleRecord,
+        current: Candle,
+        candidate: Candle,
+    ) -> None:
+        cls._validate_candle_identity(current, candidate)
+        if current.is_closed:
+            raise CandleConflictError("closed candle history is immutable")
+        if candidate.high < current.high:
+            raise CandleConflictError("open candle high cannot decrease")
+        if candidate.low > current.low:
+            raise CandleConflictError("open candle low cannot increase")
+
+        record.high = candidate.high
+        record.low = candidate.low
+        record.close = candidate.close
+        record.is_closed = candidate.is_closed
+        record.vision_confidence = candidate.vision_confidence
+        record.source_confidence = candidate.source_confidence
+
+    @staticmethod
+    def _validate_candle_identity(current: Candle, candidate: Candle) -> None:
+        immutable_fields = (
+            "source_id",
+            "session_id",
+            "asset",
+            "timeframe",
+            "open_time",
+            "close_time",
+            "open",
+        )
+        changed = [
+            field
+            for field in immutable_fields
+            if getattr(current, field) != getattr(candidate, field)
+        ]
+        if changed:
+            raise CandleConflictError(
+                f"candle identity fields cannot change: {', '.join(changed)}"
+            )
+
     @classmethod
     def _normalize_session(cls, session: Session) -> Session:
         started_at = cls._normalize_datetime(session.started_at, "started_at")
@@ -128,6 +373,35 @@ class PostgresStorageRepository:
             height=frame.height,
             changed_since_previous=frame.changed_since_previous,
             storage_reference=frame.storage_reference,
+        )
+
+    @classmethod
+    def _normalize_observation(cls, observation: Observation) -> Observation:
+        return Observation(
+            observation_id=observation.observation_id,
+            session_id=observation.session_id,
+            timestamp=cls._normalize_datetime(observation.timestamp, "timestamp"),
+            frame_id=observation.frame_id,
+            confidence=observation.confidence,
+            visual_quality=observation.visual_quality,
+        )
+
+    @classmethod
+    def _normalize_candle(cls, candle: Candle) -> Candle:
+        return Candle(
+            source_id=candle.source_id,
+            session_id=candle.session_id,
+            asset=candle.asset,
+            timeframe=candle.timeframe,
+            open_time=cls._normalize_datetime(candle.open_time, "open_time"),
+            close_time=cls._normalize_datetime(candle.close_time, "close_time"),
+            open=candle.open,
+            high=candle.high,
+            low=candle.low,
+            close=candle.close,
+            is_closed=candle.is_closed,
+            vision_confidence=candle.vision_confidence,
+            source_confidence=candle.source_confidence,
         )
 
     @staticmethod
@@ -160,6 +434,54 @@ class PostgresStorageRepository:
             storage_reference=frame.storage_reference,
         )
 
+    @staticmethod
+    def _observation_to_record(observation: Observation) -> ObservationRecord:
+        return ObservationRecord(
+            observation_id=observation.observation_id,
+            session_id=observation.session_id,
+            timestamp=observation.timestamp,
+            frame_id=observation.frame_id,
+            confidence=observation.confidence,
+            visual_quality=observation.visual_quality,
+        )
+
+    @staticmethod
+    def _candle_to_record(candle: Candle) -> CandleRecord:
+        return CandleRecord(
+            session_id=candle.session_id,
+            source_id=candle.source_id,
+            asset=candle.asset,
+            timeframe=candle.timeframe,
+            open_time=candle.open_time,
+            close_time=candle.close_time,
+            open=candle.open,
+            high=candle.high,
+            low=candle.low,
+            close=candle.close,
+            is_closed=candle.is_closed,
+            vision_confidence=candle.vision_confidence,
+            source_confidence=candle.source_confidence,
+        )
+
+    @staticmethod
+    def _candle_to_snapshot(candle: Candle, observation_id: str) -> CandleSnapshotRecord:
+        return CandleSnapshotRecord(
+            observation_id=observation_id,
+            session_id=candle.session_id,
+            source_id=candle.source_id,
+            asset=candle.asset,
+            timeframe=candle.timeframe,
+            open_time=candle.open_time,
+            close_time=candle.close_time,
+            open=candle.open,
+            high=candle.high,
+            low=candle.low,
+            close=candle.close,
+            is_closed=candle.is_closed,
+            vision_confidence=candle.vision_confidence,
+            source_confidence=candle.source_confidence,
+        )
+
     @classmethod
     def _session_to_domain(cls, record: SessionRecord) -> Session:
         return Session(
@@ -186,4 +508,51 @@ class PostgresStorageRepository:
             height=record.height,
             changed_since_previous=record.changed_since_previous,
             storage_reference=record.storage_reference,
+        )
+
+    @classmethod
+    def _observation_to_domain(cls, record: ObservationRecord) -> Observation:
+        return Observation(
+            observation_id=record.observation_id,
+            session_id=record.session_id,
+            timestamp=cls._normalize_datetime(record.timestamp, "timestamp"),
+            frame_id=record.frame_id,
+            confidence=record.confidence,
+            visual_quality=record.visual_quality,
+        )
+
+    @classmethod
+    def _candle_to_domain(cls, record: CandleRecord) -> Candle:
+        return Candle(
+            source_id=record.source_id,
+            session_id=record.session_id,
+            asset=record.asset,
+            timeframe=record.timeframe,
+            open_time=cls._normalize_datetime(record.open_time, "open_time"),
+            close_time=cls._normalize_datetime(record.close_time, "close_time"),
+            open=record.open,
+            high=record.high,
+            low=record.low,
+            close=record.close,
+            is_closed=record.is_closed,
+            vision_confidence=record.vision_confidence,
+            source_confidence=record.source_confidence,
+        )
+
+    @classmethod
+    def _snapshot_to_domain(cls, record: CandleSnapshotRecord) -> Candle:
+        return Candle(
+            source_id=record.source_id,
+            session_id=record.session_id,
+            asset=record.asset,
+            timeframe=record.timeframe,
+            open_time=cls._normalize_datetime(record.open_time, "open_time"),
+            close_time=cls._normalize_datetime(record.close_time, "close_time"),
+            open=record.open,
+            high=record.high,
+            low=record.low,
+            close=record.close,
+            is_closed=record.is_closed,
+            vision_confidence=record.vision_confidence,
+            source_confidence=record.source_confidence,
         )
