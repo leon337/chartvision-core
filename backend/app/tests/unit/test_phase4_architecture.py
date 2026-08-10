@@ -16,10 +16,11 @@ def _imports(path: Path) -> set[str]:
     return modules
 
 
-def test_session_domain_and_storage_contract_do_not_depend_on_infrastructure() -> None:
+def test_phase4_domain_models_and_storage_contract_do_not_depend_on_infrastructure() -> None:
     app_root = Path(__file__).resolve().parents[2]
     paths = (
         app_root / "domain" / "models" / "session.py",
+        app_root / "domain" / "models" / "frame.py",
         app_root / "domain" / "interfaces" / "storage_provider.py",
     )
 
