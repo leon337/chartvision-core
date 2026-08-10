@@ -12,7 +12,7 @@
 | 1 | Replay MVP | ✅ PASS |
 | 2 | Visual Observer MVP | ✅ PASS |
 | 3 | Candle Reconstruction MVP | ✅ PASS |
-| 4 | Temporal Memory MVP | ⬜ PENDING |
+| 4 | Temporal Memory MVP | ✅ PASS |
 | 5 | Market Features MVP | ⬜ PENDING |
 | 6 | Analysis Lab MVP | ⬜ PENDING |
 | 7 | Outcome Evaluation MVP | ⬜ PENDING |
@@ -195,28 +195,68 @@ Essas métricas são evidência do dataset/fixture controlado e não um threshol
 
 ---
 
-## FASE 4 — TEMPORAL MEMORY MVP — ⬜ PENDING
+## FASE 4 — TEMPORAL MEMORY MVP — ✅ PASS
 
 ### Objetivo
 Persistir a evolução temporal do gráfico com integridade e rastreabilidade.
 
-### Entregas
-- sessions;
-- frames;
-- observations;
-- candles;
-- timestamps;
+### Entregas concluídas
+- `sessions`;
+- `frames`;
+- `observations`;
+- `candles`;
+- timestamps timezone-aware normalizados para UTC;
 - deduplicação persistente;
 - fechamento de candle persistido;
-- rastreabilidade entre frame e dado reconstruído.
+- snapshots imutáveis de candle por observação;
+- rastreabilidade `Frame → Observation → dado reconstruído`.
 
-### Critérios de aceite
+### Contrato temporal validado
+- `Session` usa `session_id` como identidade persistente;
+- `Frame` usa `frame_id`, sem tratar `image_hash` como identidade temporal;
+- `Observation` referencia o `Frame` da mesma sessão;
+- candle canônico usa `(session_id, open_time)` como identidade no v1;
+- candle aberto pode evoluir sem duplicação;
+- `high` não regride e `low` não regride em sentido incompatível com a evolução temporal;
+- candle pode transitar de aberto para fechado;
+- candle fechado é imutável;
+- snapshots históricos são preservados e auditáveis;
+- divergências/regravações incompatíveis produzem erro explícito.
+
+### Gate — PASS
+Os critérios oficiais foram comprovados em PostgreSQL real:
 - replays repetidos não corrompem dados;
 - candles não são duplicados dentro da mesma sessão;
 - dados históricos não são sobrescritos silenciosamente.
 
-### Autorização
-É a próxima fase autorizável após o PASS formal da FASE 3. Deve iniciar em **novo chat dedicado** e somente depois de novo `chartvision-phase-start = READY`.
+### Evidência de fechamento
+- branch `phase-4-temporal-memory-mvp`;
+- HEAD técnico `4e87314e7711464d3f08841c594330ecd235bd46`;
+- PR `#7 — feat: complete Phase 4 Temporal Memory MVP` — merged;
+- merge funcional em `main` `f0fac60c1ba0f24ddee7ed76f512600070acdf60`;
+- CI técnico da branch: run `#69` / `31438663542` — SUCCESS;
+- CI do PR: run `#70` / `31438809722` — SUCCESS;
+- CI pós-merge: run `#71` / `31438952349` — SUCCESS;
+- suíte backend no job sem PostgreSQL: `47 passed, 31 skipped`; os testes PostgreSQL são executados separadamente;
+- suíte PostgreSQL real da FASE 4: `31 passed`;
+- migrations Alembic `0001 → 0002 → 0003 → 0004`, downgrade até base e re-upgrade — SUCCESS;
+- `ruff check app` — SUCCESS;
+- `npm run build` — SUCCESS;
+- stack Docker e health checks — SUCCESS.
+
+### Critérios de aceite verificados
+- repetição determinística do histórico preserva um único candle canônico e não regride estado final;
+- PK `(session_id, open_time)` impede duplicação de candle na sessão;
+- snapshots imutáveis preservam o que cada frame/observação reconstruiu;
+- mesmo timestamp lógico com reconstrução divergente é rejeitado;
+- alterações incompatíveis depois do fechamento são rejeitadas;
+- teste arquitetural mantém domínio/contrato de storage independentes de SQLAlchemy/PostgreSQL.
+
+### Revisão de escopo
+Não foram implementados direção, amplitude, retorno, volatilidade, HH/HL/LH/LL, tendência, lateralização ou qualquer outro `MarketFeatures`. FASE 5 permanece separada.
+
+### Decisões
+Nenhuma nova decisão arquitetural foi necessária; as decisões existentes de banco temporal estruturado e PostgreSQL continuam suficientes.
 
 ---
 
@@ -236,6 +276,9 @@ Gerar características estruturadas a partir dos candles normalizados.
 
 ### Critério de aceite
 Todos os cálculos devem possuir testes unitários determinísticos.
+
+### Autorização
+É a próxima fase autorizável após o PASS formal da FASE 4. Deve iniciar em **novo chat dedicado** e somente depois de novo `chartvision-phase-start = READY`.
 
 ---
 
