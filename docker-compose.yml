@@ -17,7 +17,8 @@ services:
 
   backend:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://chartvision:chartvision@postgres:5432/chartvision}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}

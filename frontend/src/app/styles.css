@@ -6,9 +6,99 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; }
-.shell { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
-.card { width: min(720px, 100%); padding: 32px; border: 1px solid #28324a; border-radius: 18px; background: #121a2d; }
-.eyebrow { letter-spacing: .18em; font-size: 12px; opacity: .7; }
-h1 { margin: 8px 0 12px; font-size: 42px; }
-p { line-height: 1.6; }
-.status { margin-top: 24px; padding: 12px 14px; border-radius: 10px; background: #1a243b; }
+button, input { font: inherit; }
+
+.shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.replay-panel {
+  width: min(1040px, 100%);
+  padding: 24px;
+  border: 1px solid #28324a;
+  border-radius: 18px;
+  background: #121a2d;
+  box-shadow: 0 18px 60px rgb(0 0 0 / 24%);
+}
+
+.replay-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.eyebrow {
+  margin: 0;
+  letter-spacing: .18em;
+  font-size: 12px;
+  opacity: .7;
+}
+
+h1 {
+  margin: 8px 0 0;
+  font-size: clamp(28px, 4vw, 42px);
+}
+
+.metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0;
+}
+
+.metadata span,
+.status {
+  padding: 7px 10px;
+  border: 1px solid #334155;
+  border-radius: 999px;
+  background: #172036;
+  font-size: 13px;
+}
+
+.status {
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.chart {
+  width: 100%;
+  height: 480px;
+  overflow: hidden;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  background: #0f172a;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.controls button {
+  min-width: 92px;
+  padding: 10px 16px;
+  border: 1px solid #475569;
+  border-radius: 10px;
+  color: #e2e8f0;
+  background: #1e293b;
+  cursor: pointer;
+}
+
+.controls button:hover:not(:disabled) { background: #273449; }
+.controls button:disabled { cursor: not-allowed; opacity: .42; }
+.error { margin: 14px 0 0; color: #fca5a5; }
+.attribution { margin: 14px 0 0; font-size: 12px; color: #94a3b8; }
+.attribution a { color: #cbd5e1; }
+
+@media (max-width: 640px) {
+  .shell { padding: 12px; }
+  .replay-panel { padding: 16px; }
+  .chart { height: 360px; }
+  .replay-header { align-items: center; }
+}
