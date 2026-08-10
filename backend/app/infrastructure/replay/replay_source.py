@@ -93,6 +93,14 @@ class ReplaySource:
         return cls(candles)
 
     @property
+    def asset(self) -> str:
+        return self._candles[0].asset
+
+    @property
+    def timeframe(self) -> str:
+        return self._candles[0].timeframe
+
+    @property
     def status(self) -> ReplayStatus:
         return self._status
 
