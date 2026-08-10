@@ -93,6 +93,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Start complete stack
         run: docker compose up -d --build --wait --wait-timeout 120
+      - name: Apply PostgreSQL migrations
+        run: docker compose exec -T backend alembic upgrade head
+      - name: Run PostgreSQL Session persistence tests
+        run: docker compose exec -T -e CHARTVISION_POSTGRES_TEST_URL=postgresql+psycopg://chartvision:chartvision@postgres:5432/chartvision backend pytest -q app/tests/integration/test_session_persistence.py
+      - name: Verify migration downgrade and re-upgrade
+        run: |
+          docker compose exec -T backend alembic downgrade base
+          docker compose exec -T backend alembic upgrade head
       - name: Verify backend health
         run: |
           response="$(curl --fail --silent --show-error http://localhost:8000/health)"
