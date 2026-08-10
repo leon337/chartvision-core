@@ -7,10 +7,10 @@
 ## Estado atual
 
 - **Versão de planejamento:** v1 congelado
-- **Fase atual concluída:** FASE 3 — CANDLE RECONSTRUCTION MVP
+- **Fase atual concluída:** FASE 4 — TEMPORAL MEMORY MVP
 - **Status:** ✅ PASS
-- **Últimos PASS sequenciais:** FASE 0 — FOUNDATION; FASE 1 — REPLAY MVP; FASE 2 — VISUAL OBSERVER MVP; FASE 3 — CANDLE RECONSTRUCTION MVP
-- **Próxima fase autorizável:** FASE 4 — TEMPORAL MEMORY MVP
+- **Últimos PASS sequenciais:** FASE 0 — FOUNDATION; FASE 1 — REPLAY MVP; FASE 2 — VISUAL OBSERVER MVP; FASE 3 — CANDLE RECONSTRUCTION MVP; FASE 4 — TEMPORAL MEMORY MVP
+- **Próxima fase autorizável:** FASE 5 — MARKET FEATURES MVP
 - **Fases posteriores:** bloqueadas até PASS sequencial
 - **Issue mestra:** `#1 — MASTER — ChartVision Core v1 Roadmap`
 - **Modelo de trabalho:** um chat dedicado por fase + GitHub como memória oficial
@@ -49,66 +49,101 @@ Referências:
 - falha explícita `TRACKING_LOST`;
 - `Normalizer` para `Candle` canônico, estado aberto/fechado, confiança e deduplicação limitada à reconstrução;
 - `CandleReconstructionPipeline` sem Ground Truth como entrada;
-- `ReconstructionEvaluator` separado para comparação **posterior** com Ground Truth;
+- `ReconstructionEvaluator` separado para comparação posterior com Ground Truth;
 - métricas Open/High/Low/Close error, candle detection rate, direction accuracy, duplicate rate e missing candle rate.
 
 ### Referências técnicas
-- branch: `phase-3-candle-reconstruction-mvp`;
-- HEAD técnico: `b5dd7abecc8402ff825204b2bfe32cd158d2e483`;
-- PR: `#6 — feat: complete Phase 3 Candle Reconstruction MVP` — merged;
-- merge funcional em `main`: `58f202e6ca1bfea3bf6f1f08a737a78bd3e3b71c`;
+- branch `phase-3-candle-reconstruction-mvp`;
+- HEAD técnico `b5dd7abecc8402ff825204b2bfe32cd158d2e483`;
+- PR `#6 — feat: complete Phase 3 Candle Reconstruction MVP` — merged;
+- merge funcional em `main` `58f202e6ca1bfea3bf6f1f08a737a78bd3e3b71c`;
 - CI técnico final da branch: run `#42` / `31419351907` — SUCCESS;
 - CI do PR: run `#43` / `31419606685` — SUCCESS;
 - CI pós-merge: run `#44` / `31419758543` — SUCCESS.
 
 ### Testes e critérios
-Suíte específica da FASE 3 no diretório `backend`:
-
-```text
-PYTHONPATH=. pytest -q app/tests/unit/test_price_mapper.py app/tests/unit/test_price_scale_reader.py app/tests/unit/test_chart_tracker.py app/tests/unit/test_normalizer.py app/tests/unit/test_reconstruction_evaluator.py app/tests/unit/test_phase3_architecture.py app/tests/integration/test_candle_reconstruction.py
-```
-
-Resultado: `27 passed`.
-
-No CI:
+- suíte específica da FASE 3: `27 passed`;
 - `ruff check app` — SUCCESS;
 - `pytest -q` — SUCCESS;
 - `npm run build` — SUCCESS;
-- stack Docker completa — SUCCESS.
+- stack Docker completa — SUCCESS;
+- integração controlada comprovou atualização do mesmo candle sem duplicação, fechamento, deslocamento de `-70 px`, três candles fechados e métricas perfeitas no fixture controlado.
 
-A integração controlada comprova:
-- múltiplos frames atualizando o mesmo candle aberto sem duplicação;
-- novo candle fechando o anterior;
-- deslocamento horizontal de `-70 px`;
-- três candles fechados reconstruídos;
-- erros de Open/High/Low/Close iguais a `0` no cenário de referência;
-- detection rate `1.0`;
-- direction accuracy `1.0`;
-- duplicate rate `0.0`;
-- missing candle rate `0.0`.
+## Evidência da FASE 4 — TEMPORAL MEMORY MVP
 
-Teste arquitetural comprova que mapping/tracking/normalização/pipeline não importam replay, Ground Truth ou `ChartSource`. Ground Truth aparece somente no avaliador pós-reconstrução.
+### Escopo implementado
+- persistência PostgreSQL de `Session`;
+- persistência PostgreSQL de `Frame` com FK para `Session`;
+- persistência PostgreSQL de `Observation` com vínculo consistente `Session` + `Frame`;
+- persistência de `Candle` canônico por identidade `(session_id, open_time)`;
+- timestamps timezone-aware normalizados para UTC;
+- deduplicação persistente de sessões, frames, observações e candles;
+- evolução persistida de candle aberto sem criar nova identidade;
+- transição persistida de candle aberto para fechado;
+- candle fechado imutável;
+- snapshots imutáveis de candle por observação;
+- rastreabilidade histórica `Frame → Observation → candle snapshot`;
+- conflitos explícitos em vez de sobrescrita silenciosa;
+- migrations Alembic `0001_create_sessions`, `0002_create_frames`, `0003_create_observations` e `0004_create_candles`.
 
-### Limitações conhecidas da FASE 3
-- leitura numérica da escala é calibrada ao renderer/fixture controlado do v1, não a plataformas externas;
-- detector e leitura continuam dependentes do tema/tamanho/cores/fonte controlados do cenário v1;
-- estado de tracking e reconstrução permanece em memória de processo;
-- persistência temporal e rastreabilidade histórica pertencem à FASE 4;
-- métricas perfeitas registradas são apenas evidência do cenário controlado, não threshold universal.
+### Integridade temporal comprovada
+- o mesmo candle aberto pode evoluir mantendo uma única linha canônica;
+- `high` não pode diminuir e `low` não pode aumentar em evolução temporal posterior;
+- identidade/contexto/open/intervalo temporal do candle não podem ser alterados;
+- candle fechado não pode ser reaberto ou reescrito;
+- repetição do mesmo replay pode registrar novos frames/observações/snapshots sem regredir o estado canônico;
+- resultados divergentes para o mesmo candle no mesmo timestamp lógico falham explicitamente;
+- frames diferentes podem possuir o mesmo `image_hash`; hash visual não é usado como identidade temporal.
+
+### Referências técnicas
+- branch `phase-4-temporal-memory-mvp`;
+- HEAD técnico final `4e87314e7711464d3f08841c594330ecd235bd46`;
+- PR `#7 — feat: complete Phase 4 Temporal Memory MVP` — merged;
+- merge em `main` `f0fac60c1ba0f24ddee7ed76f512600070acdf60`;
+- CI técnico da branch: run `#69` / `31438663542` — SUCCESS;
+- CI do PR: run `#70` / `31438809722` — SUCCESS;
+- CI pós-merge: run `#71` / `31438952349` — SUCCESS.
+
+### Testes e critérios de aceite
+No CI técnico/PR/pós-merge:
+- `ruff check app` — SUCCESS;
+- suíte backend sem variável de PostgreSQL: `47 passed, 31 skipped`; os 31 skips são os testes PostgreSQL executados no job dedicado;
+- testes reais contra PostgreSQL: `31 passed`;
+- migrations Alembic `upgrade head` até `0004` — SUCCESS;
+- `downgrade base` seguido de novo `upgrade head` — SUCCESS;
+- `npm run build` — SUCCESS;
+- stack Docker completa e health checks — SUCCESS.
+
+Critérios oficiais comprovados:
+1. **Replays repetidos não corrompem dados** — teste PostgreSQL repete o histórico lógico e comprova que o estado canônico não regride, preservando snapshots auditáveis.
+2. **Candles não são duplicados dentro da mesma sessão** — chave primária `(session_id, open_time)` e teste de replay repetido mantêm uma única linha canônica.
+3. **Dados históricos não são sobrescritos silenciosamente** — snapshots por observação são imutáveis; divergência no mesmo timestamp, regressão temporal e alteração pós-fechamento geram conflito explícito.
+
+### Revisão de escopo
+Nenhum cálculo de `MarketFeatures` foi implementado. Direção, amplitude, retorno, volatilidade, HH/HL/LH/LL, tendência e lateralização permanecem exclusivamente na FASE 5. Analysis, Outcome Evaluation e Dashboard também não foram antecipados.
+
+### Decisões
+Nenhuma nova decisão arquitetural foi necessária para o fechamento. As decisões já registradas para banco temporal estruturado e PostgreSQL permanecem suficientes; `docs/DECISIONS.md` não foi alterado.
+
+### Limitações conhecidas
+- o v1 permanece restrito ao ambiente/replay controlado;
+- persistência preserva dados reconstruídos pela visão, sem alterar a separação de Ground Truth;
+- o aviso de depreciação do Alembic sobre ausência de `path_separator` é não bloqueante e não altera a funcionalidade da FASE 4;
+- nenhuma integração externa, execução financeira ou funcionalidade de FASE 5+ foi adicionada.
 
 ## Próxima missão prevista
 
-### FASE 4 — TEMPORAL MEMORY MVP
+### FASE 5 — MARKET FEATURES MVP
 
-O PASS da FASE 3 **autoriza apenas abrir** a FASE 4 em um novo chat dedicado.
+O PASS da FASE 4 **autoriza apenas abrir** a FASE 5 em um novo chat dedicado.
 
-Antes de qualquer planejamento ou implementação da FASE 4:
-1. abrir chat dedicado da FASE 4;
+Antes de qualquer planejamento ou implementação da FASE 5:
+1. abrir chat dedicado da FASE 5;
 2. executar/reproduzir `.agents/skills/chartvision-phase-start/SKILL.md`;
 3. recuperar novamente branch, HEAD, CI, Issue Mestra, escopo, roadmap e decisões;
 4. produzir novo Phase Brief.
 
-A FASE 4 **não foi iniciada** neste ciclo.
+A FASE 5 **não foi iniciada** neste ciclo.
 
 ## Estado de implementação por fase
 
@@ -118,8 +153,8 @@ A FASE 4 **não foi iniciada** neste ciclo.
 | 1 — Replay | ✅ PASS | Replay determinístico e gate temporal validados |
 | 2 — Visual Observer | ✅ PASS | Captura, detecção visual, confiança e falhas validadas |
 | 3 — Candle Reconstruction | ✅ PASS | Pixel→preço, tracking, normalização, OHLC e métricas pós-reconstrução validados |
-| 4 — Temporal Memory | ⬜ PENDING | Próxima fase autorizável; exige novo PHASE START |
-| 5 — Market Features | 🔒 BLOCKED | Aguarda FASE 4 |
+| 4 — Temporal Memory | ✅ PASS | PostgreSQL temporal, deduplicação, fechamento e rastreabilidade histórica validados |
+| 5 — Market Features | ⬜ PENDING | Próxima fase autorizável; exige novo PHASE START |
 | 6 — Analysis Lab | 🔒 BLOCKED | Aguarda FASE 5 |
 | 7 — Outcome Evaluation | 🔒 BLOCKED | Aguarda FASE 6 |
 | 8 — Dashboard | 🔒 BLOCKED | Aguarda FASE 7 |
