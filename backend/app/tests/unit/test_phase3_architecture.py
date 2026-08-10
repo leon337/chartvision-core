@@ -3,11 +3,11 @@ from pathlib import Path
 
 
 PHASE3_RECONSTRUCTION_MODULES = (
-    "backend/app/infrastructure/vision/price_mapper.py",
-    "backend/app/infrastructure/vision/price_scale_reader.py",
-    "backend/app/domain/services/chart_tracker.py",
-    "backend/app/domain/services/normalizer.py",
-    "backend/app/infrastructure/vision/reconstruction_pipeline.py",
+    "app/infrastructure/vision/price_mapper.py",
+    "app/infrastructure/vision/price_scale_reader.py",
+    "app/domain/services/chart_tracker.py",
+    "app/domain/services/normalizer.py",
+    "app/infrastructure/vision/reconstruction_pipeline.py",
 )
 
 
@@ -31,7 +31,7 @@ def test_reconstruction_modules_do_not_import_replay_ground_truth_or_chart_sourc
 
 
 def test_ground_truth_comparison_is_isolated_to_reconstruction_evaluator() -> None:
-    evaluator = Path("backend/app/domain/services/reconstruction_evaluator.py").read_text(
+    evaluator = Path("app/domain/services/reconstruction_evaluator.py").read_text(
         encoding="utf-8"
     )
     for path in PHASE3_RECONSTRUCTION_MODULES:
