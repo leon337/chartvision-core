@@ -9,6 +9,7 @@
 - **Versão de planejamento:** v1 congelado
 - **Fase atual concluída:** FASE 1 — REPLAY MVP
 - **Status:** ✅ PASS
+- **Últimos PASS sequenciais:** FASE 0 — FOUNDATION; FASE 1 — REPLAY MVP
 - **Próxima fase autorizável:** FASE 2 — VISUAL OBSERVER MVP
 - **Fases posteriores:** bloqueadas até PASS sequencial
 - **Issue mestra:** `#1 — MASTER — ChartVision Core v1 Roadmap`
