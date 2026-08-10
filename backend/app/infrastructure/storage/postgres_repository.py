@@ -7,9 +7,10 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session as OrmSession
 
-from app.domain.interfaces.storage_provider import SessionConflictError
+from app.domain.interfaces.storage_provider import FrameConflictError, SessionConflictError
+from app.domain.models.frame import Frame
 from app.domain.models.session import Session
-from app.infrastructure.db.models import SessionRecord
+from app.infrastructure.db.models import FrameRecord, SessionRecord
 from app.infrastructure.db.session import SessionLocal
 
 SessionFactory = Callable[[], OrmSession]
@@ -38,11 +39,11 @@ class PostgresStorageRepository:
             with db.begin():
                 existing = db.get(SessionRecord, normalized.session_id)
                 if existing is None:
-                    db.add(self._to_record(normalized))
+                    db.add(self._session_to_record(normalized))
                     db.flush()
                     return
 
-                persisted = self._to_domain(existing)
+                persisted = self._session_to_domain(existing)
                 if persisted == normalized:
                     return
 
@@ -61,7 +62,41 @@ class PostgresStorageRepository:
             record = db.get(SessionRecord, session_id)
             if record is None:
                 return None
-            return self._to_domain(record)
+            return self._session_to_domain(record)
+        finally:
+            db.close()
+
+    def save_frame(self, frame: Frame) -> None:
+        normalized = self._normalize_frame(frame)
+        db = self._session_factory()
+        try:
+            with db.begin():
+                existing = db.get(FrameRecord, normalized.frame_id)
+                if existing is None:
+                    db.add(self._frame_to_record(normalized))
+                    db.flush()
+                    return
+
+                persisted = self._frame_to_domain(existing)
+                if persisted == normalized:
+                    return
+
+                raise FrameConflictError(
+                    f"frame_id {normalized.frame_id!r} already exists with different data"
+                )
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+    def get_frame(self, frame_id: str) -> Frame | None:
+        db = self._session_factory()
+        try:
+            record = db.get(FrameRecord, frame_id)
+            if record is None:
+                return None
+            return self._frame_to_domain(record)
         finally:
             db.close()
 
@@ -82,6 +117,19 @@ class PostgresStorageRepository:
             ended_at=ended_at,
         )
 
+    @classmethod
+    def _normalize_frame(cls, frame: Frame) -> Frame:
+        return Frame(
+            frame_id=frame.frame_id,
+            session_id=frame.session_id,
+            captured_at=cls._normalize_datetime(frame.captured_at, "captured_at"),
+            image_hash=frame.image_hash,
+            width=frame.width,
+            height=frame.height,
+            changed_since_previous=frame.changed_since_previous,
+            storage_reference=frame.storage_reference,
+        )
+
     @staticmethod
     def _normalize_datetime(value: datetime, field_name: str) -> datetime:
         if value.tzinfo is None or value.utcoffset() is None:
@@ -89,7 +137,7 @@ class PostgresStorageRepository:
         return value.astimezone(timezone.utc)
 
     @staticmethod
-    def _to_record(session: Session) -> SessionRecord:
+    def _session_to_record(session: Session) -> SessionRecord:
         return SessionRecord(
             session_id=session.session_id,
             source_id=session.source_id,
@@ -99,8 +147,21 @@ class PostgresStorageRepository:
             ended_at=session.ended_at,
         )
 
+    @staticmethod
+    def _frame_to_record(frame: Frame) -> FrameRecord:
+        return FrameRecord(
+            frame_id=frame.frame_id,
+            session_id=frame.session_id,
+            captured_at=frame.captured_at,
+            image_hash=frame.image_hash,
+            width=frame.width,
+            height=frame.height,
+            changed_since_previous=frame.changed_since_previous,
+            storage_reference=frame.storage_reference,
+        )
+
     @classmethod
-    def _to_domain(cls, record: SessionRecord) -> Session:
+    def _session_to_domain(cls, record: SessionRecord) -> Session:
         return Session(
             session_id=record.session_id,
             source_id=record.source_id,
@@ -112,4 +173,17 @@ class PostgresStorageRepository:
                 if record.ended_at is not None
                 else None
             ),
+        )
+
+    @classmethod
+    def _frame_to_domain(cls, record: FrameRecord) -> Frame:
+        return Frame(
+            frame_id=record.frame_id,
+            session_id=record.session_id,
+            captured_at=cls._normalize_datetime(record.captured_at, "captured_at"),
+            image_hash=record.image_hash,
+            width=record.width,
+            height=record.height,
+            changed_since_previous=record.changed_since_previous,
+            storage_reference=record.storage_reference,
         )
