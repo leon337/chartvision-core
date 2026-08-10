@@ -21,6 +21,8 @@ def test_phase4_domain_models_and_storage_contract_do_not_depend_on_infrastructu
     paths = (
         app_root / "domain" / "models" / "session.py",
         app_root / "domain" / "models" / "frame.py",
+        app_root / "domain" / "models" / "observation.py",
+        app_root / "domain" / "models" / "candle.py",
         app_root / "domain" / "interfaces" / "storage_provider.py",
     )
 
