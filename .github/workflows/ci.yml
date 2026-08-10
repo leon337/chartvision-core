@@ -5,19 +5,54 @@ on:
   pull_request:
 
 jobs:
+  governance:
+    name: governance-memory
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify mandatory project memory
+        run: |
+          required=(
+            "AGENTS.md"
+            "docs/PROJECT_STATE.md"
+            "docs/SCOPE.md"
+            "docs/ROADMAP.md"
+            "docs/DECISIONS.md"
+            "docs/CONTINUITY_PROTOCOL.md"
+            "docs/architecture.md"
+            "docs/replay_system.md"
+            "docs/vision_pipeline.md"
+            "docs/evaluation_metrics.md"
+          )
+          for file in "${required[@]}"; do
+            test -s "$file" || { echo "Missing or empty mandatory memory file: $file"; exit 1; }
+          done
+      - name: Verify frozen roadmap anchors
+        run: |
+          grep -q "FASE 0 — FOUNDATION" docs/ROADMAP.md
+          grep -q "FASE 1 — REPLAY MVP" docs/ROADMAP.md
+          grep -q "FASE 8 — DASHBOARD MVP" docs/ROADMAP.md
+          grep -q "FASE 0 — FOUNDATION" docs/PROJECT_STATE.md
+          grep -q "FASE 1 — REPLAY MVP" docs/PROJECT_STATE.md
+
   backend:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install -r requirements.txt
-      - run: ruff check app
-      - run: pytest -q
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+      - name: Lint backend
+        working-directory: backend
+        run: ruff check app
+      - name: Test backend
+        working-directory: backend
+        env:
+          PYTHONPATH: .
+        run: pytest -q
 
   frontend:
     runs-on: ubuntu-latest
@@ -35,7 +70,7 @@ jobs:
   foundation:
     name: foundation-docker
     runs-on: ubuntu-latest
-    needs: [backend, frontend]
+    needs: [governance, backend, frontend]
     steps:
       - uses: actions/checkout@v4
       - name: Start complete stack
