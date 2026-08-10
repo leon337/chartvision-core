@@ -30,6 +30,11 @@ jobs:
           for file in "${required[@]}"; do
             test -s "$file" || { echo "Missing or empty mandatory memory file: $file"; exit 1; }
           done
+      - name: Verify ChatGPT project instruction size
+        run: |
+          chars="$(wc -m < docs/CHATGPT_PROJECT_INSTRUCTIONS.md)"
+          echo "Project instruction characters: $chars"
+          test "$chars" -le 8000 || { echo "ChatGPT project instruction exceeds 8000 characters"; exit 1; }
       - name: Verify frozen roadmap anchors
         run: |
           grep -q "FASE 0 — FOUNDATION" docs/ROADMAP.md
