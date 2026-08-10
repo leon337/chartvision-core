@@ -11,7 +11,7 @@
 | 0 | Foundation | ✅ PASS |
 | 1 | Replay MVP | ✅ PASS |
 | 2 | Visual Observer MVP | ✅ PASS |
-| 3 | Candle Reconstruction MVP | ⬜ PENDING |
+| 3 | Candle Reconstruction MVP | ✅ PASS |
 | 4 | Temporal Memory MVP | ⬜ PENDING |
 | 5 | Market Features MVP | ⬜ PENDING |
 | 6 | Analysis Lab MVP | ⬜ PENDING |
@@ -75,32 +75,15 @@ Reproduzir um dataset OHLC de forma determinística em um gráfico controlado.
 - `ReplaySource`;
 - dataset de referência;
 - `ChartRenderer`;
-- Start;
-- Pause;
-- Resume;
-- Reset;
+- Start/Pause/Resume/Reset;
 - relógio virtual determinístico;
-- gate temporal para impedir exposição antecipada de candles.
+- gate temporal contra exposição antecipada de candles.
 
 ### Evidência de fechamento
-- PR `#2 — feat: complete Phase 1 Replay MVP`;
-- HEAD técnico: `f335a35bbd028e4e8050d995fea8b4c5a907a0a5`;
-- merge em `main`: `821bce313295701fd69cd1925fa9f4a3726cb731`;
-- CI técnico run `#28` — SUCCESS;
-- CI de PR run `#29` — SUCCESS;
-- CI pós-merge run `#30` — SUCCESS;
-- `ruff check app` — PASS;
-- `pytest -q` — 8 testes aprovados;
-- `npm run build` — PASS;
-- stack Docker completa — PASS.
-
-### Critérios de aceite verificados
-- mesmo dataset/configuração gera exatamente a mesma sequência em execuções repetidas;
-- Pause congela progressão;
-- Resume continua do mesmo ponto;
-- Reset volta ao estado inicial;
-- nenhum componente de visão foi implementado;
-- candle futuro não é exposto antes do `close_time`.
+- PR `#2` — merged;
+- HEAD técnico `f335a35bbd028e4e8050d995fea8b4c5a907a0a5`;
+- merge `821bce313295701fd69cd1925fa9f4a3726cb731`;
+- CI final run `#32` / `31374719545` — SUCCESS.
 
 ---
 
@@ -110,65 +93,105 @@ Reproduzir um dataset OHLC de forma determinística em um gráfico controlado.
 Observar o gráfico renderizado estritamente como imagem.
 
 ### Entregas concluídas
-- `CaptureService` com captura/crop da região controlada, hash de pixels, detecção de mudança e intervalo padrão de 5 segundos;
-- `ChartDetector` para área útil do gráfico, região de candles e localização visual da escala de preço;
-- `CandleDetector` visual inicial para X, corpo, pavios, largura, direção e confiança;
-- contratos de geometria, confiança, qualidade e falhas explícitas;
-- `OpenCVVisionProvider` com entrada somente `image: bytes`;
-- cenário visual controlado de referência e testes de fronteira arquitetural.
+- `CaptureService`;
+- `ChartDetector`;
+- `CandleDetector`;
+- contratos de geometria/confiança/qualidade/falhas;
+- `OpenCVVisionProvider.observe(image: bytes)`;
+- cenário visual controlado.
 
 ### Evidência de fechamento
 - branch `phase-2-visual-observer-mvp`;
-- PR `#3 — feat: complete Phase 2 Visual Observer MVP` — merged;
+- PR `#3` — merged;
 - HEAD técnico `83d5b8dc7c94fdc472a3049bb30f835454e45d1a`;
-- merge em `main` `afc028a6c966ec8be628dee59b9aa432ebd8921c`;
-- CI técnico run `#34` / `31407809004` — SUCCESS;
-- CI de PR run `#35` / `31408022011` — SUCCESS;
-- CI pós-merge run `#36` / `31408244075` — SUCCESS;
-- `ruff check app` — PASS;
-- `pytest -q` — 19 testes aprovados;
-- `npm run build` — PASS;
-- stack Docker completa — PASS.
+- merge `afc028a6c966ec8be628dee59b9aa432ebd8921c`;
+- HEAD documental anterior `d0f28b87d4d8d9bfb8e2e706b7711d842ecad060`;
+- CI final run `#37` / `31408563320` — SUCCESS.
 
 ### Critérios de aceite verificados
-- módulo visual recebe imagem/pixels e não acessa OHLC do `ReplaySource` nem Ground Truth;
-- cenário visual controlado identifica os 3 candles visíveis de referência com geometria, direção e confiança;
-- gráfico ausente, imagem de baixa qualidade, escala não localizada e ausência de candles geram estados explícitos sem dados inventados;
-- captura gera hash e mudança/não mudança de frame, mantendo 5 segundos como intervalo padrão;
-- não existe conversão pixel → preço, tracking, normalização ou reconstrução OHLC nesta fase.
-
-### Limitações preservadas
-- detector inicial calibrado para tema/tamanho/cores controlados do v1;
-- persistência temporal continua reservada à FASE 4;
-- `PriceMapper`, `ChartTracker`, `Normalizer` e reconstrução OHLC permanecem para a FASE 3.
+- visão recebe somente imagem/pixels e não acessa OHLC/Ground Truth;
+- candles visíveis são identificados com geometria, direção e confiança;
+- falhas retornam estados explícitos;
+- `Frame` permanece separado de candle;
+- pixel→preço, tracking e normalização não foram antecipados.
 
 ---
 
-## FASE 3 — CANDLE RECONSTRUCTION MVP — ⬜ PENDING
+## FASE 3 — CANDLE RECONSTRUCTION MVP — ✅ PASS
 
 ### Objetivo
-Converter elementos visuais em candles normalizados e compará-los ao Ground Truth.
+Converter elementos visuais em candles normalizados e compará-los ao Ground Truth somente após a reconstrução.
 
-### Entregas
+### Entregas concluídas
+- `OpenCVPriceScaleReader` controlado para anchors derivados dos pixels da escala;
 - `PriceMapper`;
 - `ChartTracker`;
 - `Normalizer`;
 - reconstrução OHLC;
 - identificação de candle aberto/fechado;
-- deduplicação temporal.
+- reconhecimento de novo candle e deslocamento horizontal;
+- deduplicação temporal limitada à reconstrução;
+- `TRACKING_LOST` como falha explícita;
+- `CandleReconstructionPipeline` sem Ground Truth;
+- `ReconstructionEvaluator` pós-reconstrução.
 
-### Métricas obrigatórias
-- erro de Open, High, Low e Close;
-- taxa de detecção;
-- acurácia de direção;
-- taxa de duplicação;
-- taxa de candles ausentes.
+### Métricas implementadas
+- Open error;
+- High error;
+- Low error;
+- Close error;
+- candle detection rate;
+- direction accuracy;
+- duplicate rate;
+- missing candle rate.
 
-### Gate
-Não avançar se a reconstrução não estiver estável no dataset de referência.
+### Gate — PASS
+O cenário controlado de três frames é estável:
+- mesmo candle é atualizado em múltiplos frames sem duplicação;
+- novo candle fecha o anterior;
+- deslocamento horizontal de `-70 px` é reconhecido;
+- três candles fechados são reconstruídos;
+- Open/High/Low/Close error = `0`;
+- candle detection rate = `1.0`;
+- direction accuracy = `1.0`;
+- duplicate rate = `0.0`;
+- missing candle rate = `0.0`.
 
-### Autorização
-É a próxima fase autorizável após o PASS formal da FASE 2, exclusivamente em novo chat dedicado e após novo `chartvision-phase-start` resultar em READY.
+Essas métricas são evidência do dataset/fixture controlado e não um threshold universal.
+
+### Evidência de fechamento
+- branch `phase-3-candle-reconstruction-mvp`;
+- HEAD técnico `b5dd7abecc8402ff825204b2bfe32cd158d2e483`;
+- PR `#6 — feat: complete Phase 3 Candle Reconstruction MVP` — merged;
+- merge em `main` `58f202e6ca1bfea3bf6f1f08a737a78bd3e3b71c`;
+- CI técnico run `#42` / `31419351907` — SUCCESS;
+- CI do PR run `#43` / `31419606685` — SUCCESS;
+- CI pós-merge run `#44` / `31419758543` — SUCCESS;
+- suíte específica da FASE 3 — `27 passed`;
+- `ruff check app` — SUCCESS no CI;
+- `pytest -q` — SUCCESS no CI;
+- `npm run build` — SUCCESS no CI;
+- stack Docker completa — SUCCESS no CI.
+
+### Critérios de aceite verificados
+- pixel→preço usa exclusivamente escala visual;
+- OHLC é reconstruído sem OHLC verdadeiro como entrada;
+- múltiplos frames podem representar o mesmo candle;
+- identidade do candle é mantida entre frames;
+- candle aberto é atualizado, não duplicado;
+- novo candle, fechamento e deslocamento horizontal são reconhecidos;
+- `Normalizer` gera o modelo canônico com confiança;
+- falhas de escala/tracking são explícitas;
+- teste arquitetural bloqueia dependência de replay/Ground Truth/`ChartSource` nos módulos de reconstrução;
+- Ground Truth entra somente no avaliador posterior;
+- as oito métricas obrigatórias estão implementadas;
+- nenhuma persistência temporal funcional da FASE 4 foi antecipada.
+
+### Limitações preservadas
+- leitura de escala é calibrada ao renderer/fixture controlado do v1;
+- tracking é memória de processo;
+- persistência temporal em PostgreSQL e rastreabilidade histórica pertencem à FASE 4;
+- nenhuma integração externa faz parte do v1.
 
 ---
 
@@ -183,14 +206,17 @@ Persistir a evolução temporal do gráfico com integridade e rastreabilidade.
 - observations;
 - candles;
 - timestamps;
-- deduplicação;
-- fechamento de candle;
+- deduplicação persistente;
+- fechamento de candle persistido;
 - rastreabilidade entre frame e dado reconstruído.
 
 ### Critérios de aceite
 - replays repetidos não corrompem dados;
 - candles não são duplicados dentro da mesma sessão;
 - dados históricos não são sobrescritos silenciosamente.
+
+### Autorização
+É a próxima fase autorizável após o PASS formal da FASE 3. Deve iniciar em **novo chat dedicado** e somente depois de novo `chartvision-phase-start = READY`.
 
 ---
 
