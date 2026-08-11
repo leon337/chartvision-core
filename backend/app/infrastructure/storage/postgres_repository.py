@@ -244,6 +244,59 @@ class PostgresStorageRepository:
         finally:
             db.close()
 
+    def get_candles_as_of(self, session_id: str, as_of: datetime) -> tuple[Candle, ...]:
+        normalized_as_of = self._normalize_datetime(as_of, "as_of")
+        db = self._session_factory()
+        try:
+            ranked_snapshots = (
+                select(
+                    CandleSnapshotRecord.observation_id.label("observation_id"),
+                    CandleSnapshotRecord.session_id.label("session_id"),
+                    CandleSnapshotRecord.open_time.label("open_time"),
+                    func.row_number()
+                    .over(
+                        partition_by=(
+                            CandleSnapshotRecord.session_id,
+                            CandleSnapshotRecord.open_time,
+                        ),
+                        order_by=(
+                            ObservationRecord.timestamp.desc(),
+                            CandleSnapshotRecord.observation_id.desc(),
+                        ),
+                    )
+                    .label("snapshot_rank"),
+                )
+                .join(
+                    ObservationRecord,
+                    CandleSnapshotRecord.observation_id
+                    == ObservationRecord.observation_id,
+                )
+                .where(
+                    CandleSnapshotRecord.session_id == session_id,
+                    ObservationRecord.session_id == session_id,
+                    ObservationRecord.timestamp <= normalized_as_of,
+                )
+                .subquery()
+            )
+            statement = (
+                select(CandleSnapshotRecord)
+                .join(
+                    ranked_snapshots,
+                    (
+                        CandleSnapshotRecord.observation_id
+                        == ranked_snapshots.c.observation_id
+                    )
+                    & (CandleSnapshotRecord.session_id == ranked_snapshots.c.session_id)
+                    & (CandleSnapshotRecord.open_time == ranked_snapshots.c.open_time),
+                )
+                .where(ranked_snapshots.c.snapshot_rank == 1)
+                .order_by(CandleSnapshotRecord.open_time)
+            )
+            snapshots = db.scalars(statement).all()
+            return tuple(self._snapshot_to_domain(snapshot) for snapshot in snapshots)
+        finally:
+            db.close()
+
     @classmethod
     def _snapshot_at_timestamp(
         cls,

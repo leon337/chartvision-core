@@ -7,11 +7,15 @@
 ## Estado atual
 
 - **Versão de planejamento:** v1 congelado
-- **Fase atual concluída:** FASE 4 — TEMPORAL MEMORY MVP
-- **Status:** ✅ PASS
+- **Última fase formalmente concluída:** FASE 4 — TEMPORAL MEMORY MVP
+- **Último status formal:** ✅ PASS
+- **Fase atualmente em desenvolvimento:** FASE 5 — MARKET FEATURES MVP
+- **Status operacional atual:** 🟡 IN PROGRESS
+- **Branch ativa:** `phase-5-market-features-mvp`
+- **Último incremento técnico revalidado:** `1915369f123fed9109e3ee9155be777f63672582`
+- **CI técnico revalidado:** run `#116` / `31463891443` — SUCCESS
 - **Últimos PASS sequenciais:** FASE 0 — FOUNDATION; FASE 1 — REPLAY MVP; FASE 2 — VISUAL OBSERVER MVP; FASE 3 — CANDLE RECONSTRUCTION MVP; FASE 4 — TEMPORAL MEMORY MVP
-- **Próxima fase autorizável:** FASE 5 — MARKET FEATURES MVP
-- **Fases posteriores:** bloqueadas até PASS sequencial
+- **Próxima fase:** FASE 6 — ANALYSIS LAB MVP — bloqueada até `PHASE_CLOSE = PASS` da FASE 5
 - **Issue mestra:** `#1 — MASTER — ChartVision Core v1 Roadmap`
 - **Modelo de trabalho:** um chat dedicado por fase + GitHub como memória oficial
 
@@ -102,7 +106,9 @@ Referências:
 - merge em `main` `f0fac60c1ba0f24ddee7ed76f512600070acdf60`;
 - CI técnico da branch: run `#69` / `31438663542` — SUCCESS;
 - CI do PR: run `#70` / `31438809722` — SUCCESS;
-- CI pós-merge: run `#71` / `31438952349` — SUCCESS.
+- CI pós-merge: run `#71` / `31438952349` — SUCCESS;
+- HEAD final documental/de fechamento em `main`: `9d1cdd7b44c6c1f1c8f526b8c195cf36bd3e29c9`;
+- CI final do HEAD documental: run `#74` / `31439159599` — SUCCESS.
 
 ### Testes e critérios de aceite
 No CI técnico/PR/pós-merge:
@@ -119,8 +125,8 @@ Critérios oficiais comprovados:
 2. **Candles não são duplicados dentro da mesma sessão** — chave primária `(session_id, open_time)` e teste de replay repetido mantêm uma única linha canônica.
 3. **Dados históricos não são sobrescritos silenciosamente** — snapshots por observação são imutáveis; divergência no mesmo timestamp, regressão temporal e alteração pós-fechamento geram conflito explícito.
 
-### Revisão de escopo
-Nenhum cálculo de `MarketFeatures` foi implementado. Direção, amplitude, retorno, volatilidade, HH/HL/LH/LL, tendência e lateralização permanecem exclusivamente na FASE 5. Analysis, Outcome Evaluation e Dashboard também não foram antecipados.
+### Revisão de escopo no fechamento da FASE 4
+Nenhum cálculo de `MarketFeatures` havia sido implementado no fechamento da FASE 4. Direção, amplitude, retorno, volatilidade, HH/HL/LH/LL, tendência e lateralização permaneceram reservados à FASE 5 naquele fechamento.
 
 ### Decisões
 Nenhuma nova decisão arquitetural foi necessária para o fechamento. As decisões já registradas para banco temporal estruturado e PostgreSQL permanecem suficientes; `docs/DECISIONS.md` não foi alterado.
@@ -128,22 +134,41 @@ Nenhuma nova decisão arquitetural foi necessária para o fechamento. As decisõ
 ### Limitações conhecidas
 - o v1 permanece restrito ao ambiente/replay controlado;
 - persistência preserva dados reconstruídos pela visão, sem alterar a separação de Ground Truth;
-- o aviso de depreciação do Alembic sobre ausência de `path_separator` é não bloqueante e não altera a funcionalidade da FASE 4;
-- nenhuma integração externa, execução financeira ou funcionalidade de FASE 5+ foi adicionada.
+- o aviso de depreciação do Alembic sobre ausência de `path_separator` é não bloqueante e não altera a funcionalidade da FASE 4.
 
-## Próxima missão prevista
+## FASE 5 — MARKET FEATURES MVP — IN PROGRESS
 
-### FASE 5 — MARKET FEATURES MVP
+A FASE 5 foi aberta após o PASS formal da FASE 4 e seu lifecycle de início foi executado/revalidado. O fechamento formal da FASE 5 ainda não ocorreu.
 
-O PASS da FASE 4 **autoriza apenas abrir** a FASE 5 em um novo chat dedicado.
+### Estado técnico revalidado
+- branch ativa: `phase-5-market-features-mvp`;
+- último incremento técnico aprovado: `1915369f123fed9109e3ee9155be777f63672582`;
+- CI desse incremento: run `#116` / `31463891443` — SUCCESS;
+- nenhuma PR aberta da FASE 5 no momento da revalidação;
+- nenhuma branch concorrente `phase-5` identificada.
 
-Antes de qualquer planejamento ou implementação da FASE 5:
-1. abrir chat dedicado da FASE 5;
-2. executar/reproduzir `.agents/skills/chartvision-phase-start/SKILL.md`;
-3. recuperar novamente branch, HEAD, CI, Issue Mestra, escopo, roadmap e decisões;
-4. produzir novo Phase Brief.
+### Progresso técnico já implementado
+- primitive point-in-time `StorageProvider.get_candles_as_of(session_id, as_of)`;
+- especificação funcional canônica em `docs/market_features.md`;
+- direção do candle;
+- amplitude do candle;
+- retorno simples close-to-close;
+- volatilidade simples populacional;
+- HH — Higher High;
+- HL — Higher Low;
+- LH — Lower High;
+- LL — Lower Low;
+- tendência estrutural básica;
+- lateralização estrutural básica.
 
-A FASE 5 **não foi iniciada** neste ciclo.
+### Trabalho ainda pendente na FASE 5
+- revisão independente do incremento final;
+- verificação formal de fechamento por `.agents/skills/chartvision-phase-close/SKILL.md`, somente após nova autorização explícita.
+
+Não há feature funcional pendente no escopo congelado da FASE 5. Isso não equivale a `PASS`: o lifecycle formal de fechamento ainda não foi executado.
+
+### Limite de progressão
+A FASE 5 permanece **IN PROGRESS**. A FASE 6 — ANALYSIS LAB MVP permanece bloqueada até revisão final, validações de fechamento, atualização de memória exigida pelo lifecycle e `PHASE_CLOSE = PASS` da FASE 5.
 
 ## Estado de implementação por fase
 
@@ -154,10 +179,14 @@ A FASE 5 **não foi iniciada** neste ciclo.
 | 2 — Visual Observer | ✅ PASS | Captura, detecção visual, confiança e falhas validadas |
 | 3 — Candle Reconstruction | ✅ PASS | Pixel→preço, tracking, normalização, OHLC e métricas pós-reconstrução validados |
 | 4 — Temporal Memory | ✅ PASS | PostgreSQL temporal, deduplicação, fechamento e rastreabilidade histórica validados |
-| 5 — Market Features | ⬜ PENDING | Próxima fase autorizável; exige novo PHASE START |
-| 6 — Analysis Lab | 🔒 BLOCKED | Aguarda FASE 5 |
+| 5 — Market Features | 🟡 IN PROGRESS | Point-in-time + especificação + 10 features funcionais implementados; fechamento formal pendente |
+| 6 — Analysis Lab | 🔒 BLOCKED | Aguarda `PHASE_CLOSE = PASS` da FASE 5 |
 | 7 — Outcome Evaluation | 🔒 BLOCKED | Aguarda FASE 6 |
 | 8 — Dashboard | 🔒 BLOCKED | Aguarda FASE 7 |
+
+## Próxima ação autorizável na fase atual
+
+O próximo passo é a revisão independente do incremento final e, somente após nova autorização explícita, a verificação formal de fechamento da FASE 5 por `chartvision-phase-close`. A FASE 6 não está autorizada enquanto esse fechamento não resultar em `PASS`.
 
 ## Regra de retomada
 
