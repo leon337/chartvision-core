@@ -110,3 +110,43 @@ class FeatureEngine:
         if all_falling:
             return BasicTrend.FALLING_STRUCTURE
         return BasicTrend.MIXED_STRUCTURE
+
+    @staticmethod
+    def basic_lateralization(
+        candles: tuple[Candle, ...],
+        lateralization_window_candles: int,
+        lateralization_max_range_ratio: Decimal,
+    ) -> bool | None:
+        if lateralization_window_candles < 3:
+            raise ValueError("lateralization_window_candles must be at least 3")
+        if lateralization_max_range_ratio < Decimal("0"):
+            raise ValueError("lateralization_max_range_ratio must be non-negative")
+
+        closed_candles = tuple(candle for candle in candles if candle.is_closed)
+        if len(closed_candles) < lateralization_window_candles:
+            return None
+
+        window = closed_candles[-lateralization_window_candles:]
+        trend = FeatureEngine.basic_trend(
+            window,
+            trend_pairs=lateralization_window_candles - 1,
+        )
+        if trend is None:
+            return None
+
+        window_high = max(candle.high for candle in window)
+        window_low = min(candle.low for candle in window)
+        window_range = window_high - window_low
+        reference_price = abs(window[0].close)
+        if reference_price == Decimal("0"):
+            return None
+
+        with localcontext() as context:
+            context.prec = 28
+            context.rounding = ROUND_HALF_EVEN
+            range_ratio = window_range / reference_price
+
+        return (
+            trend is BasicTrend.MIXED_STRUCTURE
+            and range_ratio <= lateralization_max_range_ratio
+        )
