@@ -13,10 +13,10 @@
 | 2 | Visual Observer MVP | ✅ PASS |
 | 3 | Candle Reconstruction MVP | ✅ PASS |
 | 4 | Temporal Memory MVP | ✅ PASS |
-| 5 | Market Features MVP | ⬜ PENDING |
-| 6 | Analysis Lab MVP | ⬜ PENDING |
-| 7 | Outcome Evaluation MVP | ⬜ PENDING |
-| 8 | Dashboard MVP | ⬜ PENDING |
+| 5 | Market Features MVP | 🟡 IN PROGRESS |
+| 6 | Analysis Lab MVP | 🔒 BLOCKED |
+| 7 | Outcome Evaluation MVP | 🔒 BLOCKED |
+| 8 | Dashboard MVP | 🔒 BLOCKED |
 
 ## Regra de progressão
 
@@ -252,15 +252,15 @@ Os critérios oficiais foram comprovados em PostgreSQL real:
 - alterações incompatíveis depois do fechamento são rejeitadas;
 - teste arquitetural mantém domínio/contrato de storage independentes de SQLAlchemy/PostgreSQL.
 
-### Revisão de escopo
-Não foram implementados direção, amplitude, retorno, volatilidade, HH/HL/LH/LL, tendência, lateralização ou qualquer outro `MarketFeatures`. FASE 5 permanece separada.
+### Revisão de escopo no fechamento da FASE 4
+Não foram implementados direção, amplitude, retorno, volatilidade, HH/HL/LH/LL, tendência, lateralização ou qualquer outro `MarketFeatures` durante a FASE 4. A FASE 5 permaneceu separada naquele fechamento.
 
 ### Decisões
 Nenhuma nova decisão arquitetural foi necessária; as decisões existentes de banco temporal estruturado e PostgreSQL continuam suficientes.
 
 ---
 
-## FASE 5 — MARKET FEATURES MVP — ⬜ PENDING
+## FASE 5 — MARKET FEATURES MVP — 🟡 IN PROGRESS
 
 ### Objetivo
 Gerar características estruturadas a partir dos candles normalizados.
@@ -277,12 +277,30 @@ Gerar características estruturadas a partir dos candles normalizados.
 ### Critério de aceite
 Todos os cálculos devem possuir testes unitários determinísticos.
 
-### Autorização
-É a próxima fase autorizável após o PASS formal da FASE 4. Deve iniciar em **novo chat dedicado** e somente depois de novo `chartvision-phase-start = READY`.
+### Estado operacional
+O lifecycle de início da FASE 5 já foi executado/revalidado e a fase está aberta na branch `phase-5-market-features-mvp`.
+
+Progresso técnico já existente:
+- primitive point-in-time `get_candles_as_of(session_id, as_of)`;
+- especificação canônica em `docs/market_features.md`;
+- direção;
+- amplitude;
+- retorno;
+- volatilidade simples.
+
+Pendente dentro da FASE 5:
+- HH;
+- HL;
+- LH;
+- LL;
+- tendência básica;
+- lateralização básica.
+
+O fechamento formal continua pendente. FASE 5 não é PASS e FASE 6 não está autorizada enquanto não houver conclusão do escopo, testes/CI/aceite finais e `chartvision-phase-close = PASS`.
 
 ---
 
-## FASE 6 — ANALYSIS LAB MVP — ⬜ PENDING
+## FASE 6 — ANALYSIS LAB MVP — 🔒 BLOCKED
 
 ### Objetivo
 Classificar o estado do gráfico usando somente informação disponível até o instante analisado.
@@ -299,9 +317,12 @@ Classificar o estado do gráfico usando somente informação disponível até o 
 ### Critério de aceite
 Teste automatizado comprova que nenhum candle futuro participa da análise.
 
+### Bloqueio
+Aguarda `PHASE_CLOSE = PASS` da FASE 5. Nenhuma implementação da FASE 6 está autorizada durante a FASE 5.
+
 ---
 
-## FASE 7 — OUTCOME EVALUATION MVP — ⬜ PENDING
+## FASE 7 — OUTCOME EVALUATION MVP — 🔒 BLOCKED
 
 ### Objetivo
 Comparar análises registradas com o que ocorreu posteriormente no replay.
@@ -318,9 +339,12 @@ Comparar análises registradas com o que ocorreu posteriormente no replay.
 ### Regra
 A previsão original nunca pode ser alterada retrospectivamente.
 
+### Bloqueio
+Aguarda PASS sequencial da FASE 6.
+
 ---
 
-## FASE 8 — DASHBOARD MVP — ⬜ PENDING
+## FASE 8 — DASHBOARD MVP — 🔒 BLOCKED
 
 ### Objetivo
 Disponibilizar uma interface única para observação e auditoria do laboratório.
@@ -330,6 +354,9 @@ Deve apresentar gráfico, estado do replay, qualidade visual, estado estrutural,
 
 ### Fora desta fase
 Não criar páginas extras, multiusuário, notificações ou integrações externas.
+
+### Bloqueio
+Aguarda PASS sequencial da FASE 7.
 
 ---
 
