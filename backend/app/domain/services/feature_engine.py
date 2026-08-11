@@ -1,7 +1,7 @@
 from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 
 from app.domain.models.candle import Candle
-from app.domain.models.market_features import MarketCandleDirection
+from app.domain.models.market_features import BasicTrend, MarketCandleDirection
 
 
 class FeatureEngine:
@@ -80,3 +80,33 @@ class FeatureEngine:
         if not candle.is_closed or not previous_candle.is_closed:
             return None
         return candle.low < previous_candle.low
+
+    @staticmethod
+    def basic_trend(
+        candles: tuple[Candle, ...], trend_pairs: int
+    ) -> BasicTrend | None:
+        if trend_pairs < 1:
+            raise ValueError("trend_pairs must be at least 1")
+
+        closed_candles = tuple(candle for candle in candles if candle.is_closed)
+        window_size = trend_pairs + 1
+        if len(closed_candles) < window_size:
+            return None
+
+        window = closed_candles[-window_size:]
+        all_rising = True
+        all_falling = True
+        for previous_candle, candle in zip(window, window[1:]):
+            higher_high = FeatureEngine.higher_high(candle, previous_candle)
+            higher_low = FeatureEngine.higher_low(candle, previous_candle)
+            lower_high = FeatureEngine.lower_high(candle, previous_candle)
+            lower_low = FeatureEngine.lower_low(candle, previous_candle)
+
+            all_rising = all_rising and higher_high is True and higher_low is True
+            all_falling = all_falling and lower_high is True and lower_low is True
+
+        if all_rising:
+            return BasicTrend.RISING_STRUCTURE
+        if all_falling:
+            return BasicTrend.FALLING_STRUCTURE
+        return BasicTrend.MIXED_STRUCTURE
