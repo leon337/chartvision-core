@@ -153,3 +153,21 @@ O repositório mantém duas skills instruction-only:
 A instrução usada no Projeto do ChatGPT deve possuir cópia canônica em `docs/CHATGPT_PROJECT_INSTRUCTIONS.md`.
 
 **Motivo:** impedir deriva entre configuração externa do ChatGPT e memória operacional do GitHub.
+
+---
+
+## D-018 — Outcome Evaluation usa Ground Truth pós-análise com Outcome imutável 1:1
+**Status:** aprovado
+
+A FASE 7 deve preservar a separação temporal entre análise e avaliação:
+
+- `Analysis(T)` usa somente informação conhecida até `T` e permanece imutável;
+- Ground Truth posterior entra somente por um contrato dedicado de avaliação (`GroundTruthProvider` ou equivalente), nunca por `AnalysisEngine` ou `AnalysisLabService`;
+- a avaliação usa o último candle Ground Truth fechado em ou antes de `T` como referência e exige um horizonte explícito de candles futuros fechados integralmente disponível;
+- o resultado realizado possui somente `UP`, `DOWN` ou `SIDEWAYS`; `UNCERTAIN` permanece abstention da Analysis;
+- no MVP existe no máximo um Outcome imutável por Analysis e sua identidade é `analysis_id`;
+- métricas agregadas são derivadas de `Analysis + Outcome` e não exigem tabela persistida própria no MVP.
+
+**Motivo:** resolver a fronteira de Ground Truth sem future leakage, manter auditoria simples, impedir reescrita histórica e evitar complexidade prematura de múltiplos horizontes/configurações ou persistência de agregados.
+
+**Contrato detalhado:** `docs/outcome_evaluation.md`.

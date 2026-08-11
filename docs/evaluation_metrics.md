@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Definir métricas auditáveis tanto para a qualidade da percepção/reconstrução quanto, futuramente, para a avaliação das classificações da FASE 7.
+Definir métricas auditáveis tanto para a qualidade da percepção/reconstrução quanto para a avaliação das classificações da FASE 7.
 
 ## Qualidade da percepção — FASE 3 ✅ PASS
 
@@ -36,41 +36,78 @@ Ground Truth não pode ser importado ou fornecido a `ChartDetector`, `CandleDete
 
 O teste arquitetural da FASE 3 verifica essa fronteira.
 
-## FASE 7 — Outcome Evaluation — ⬜ PENDING
+## FASE 7 — Outcome Evaluation — ⬜ PENDING / CONTRATO DEFINIDO
 
-### Objetivo
-Avaliar, de forma auditável, classificações registradas pelo sistema contra resultados observados posteriormente no replay.
+A especificação funcional canônica da FASE 7 está em:
+
+```text
+docs/outcome_evaluation.md
+```
+
+Esse documento é a autoridade para:
+
+- definição de `Outcome` e `OutcomeConfig`;
+- horizonte temporal;
+- Ground Truth boundary;
+- `RealizedState`;
+- política de `UNCERTAIN`;
+- fórmulas de accuracy, precision, recall, confusion matrix e coverage;
+- uncertain count/frequency;
+- confidence calibration diagnóstica;
+- persistência, identidade e idempotência;
+- critérios de aceite e test plan.
 
 ### Princípio de imutabilidade
+
 Uma `Analysis` registrada não pode ser alterada após conhecer o futuro.
 
-O futuro somente pode ser associado posteriormente pelo `OutcomeEvaluator`, preservando:
+O futuro somente pode ser associado posteriormente pelo Outcome Evaluation, preservando:
 - classificação original;
-- confiança original;
+- confidence original;
 - evidências originais;
 - qualidade de dados original;
 - timestamp original.
 
-### Classes previstas
-- `UP`;
-- `DOWN`;
-- `SIDEWAYS`;
-- `UNCERTAIN`.
+### Classes
 
-### Métricas previstas
+Predição/Analysis:
+
+```text
+UP
+DOWN
+SIDEWAYS
+UNCERTAIN
+```
+
+Resultado realizado:
+
+```text
+UP
+DOWN
+SIDEWAYS
+```
+
+`UNCERTAIN` é abstention da previsão e nunca é resultado realizado.
+
+### Métricas normativas
+
+A FASE 7 deve produzir:
 - accuracy;
-- precision por classe;
-- recall por classe;
-- matriz de confusão;
-- cobertura;
-- frequência de `UNCERTAIN`;
-- calibração de confiança.
+- precision por `UP`, `DOWN` e `SIDEWAYS`;
+- recall por `UP`, `DOWN` e `SIDEWAYS`;
+- matriz de confusão com linhas realizadas e colunas previstas, incluindo coluna `UNCERTAIN`;
+- coverage;
+- `uncertain_count`;
+- `uncertain_frequency`;
+- relatório de confidence calibration operacional por bins e weighted alignment gap.
+
+As fórmulas, denominadores, ordem das classes e comportamento de denominador zero estão definidos exclusivamente em `docs/outcome_evaluation.md` para evitar duplicação normativa divergente.
 
 ## Regra contra future leakage
 
-Nenhum dado posterior ao timestamp de uma análise pode ser usado para produzir aquela análise.
+Nenhum dado posterior ao timestamp de uma Analysis pode ser usado para produzir aquela Analysis.
 
-A informação futura somente entra no `OutcomeEvaluator`, após o horizonte de avaliação.
+A informação posterior somente entra na camada de Outcome Evaluation após o registro imutável da Analysis e respeitando o corte `evaluation_as_of` e o horizonte descritos em `docs/outcome_evaluation.md`.
 
 ## Interpretação
 
