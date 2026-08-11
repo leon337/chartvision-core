@@ -171,3 +171,29 @@ A FASE 7 deve preservar a separação temporal entre análise e avaliação:
 **Motivo:** resolver a fronteira de Ground Truth sem future leakage, manter auditoria simples, impedir reescrita histórica e evitar complexidade prematura de múltiplos horizontes/configurações ou persistência de agregados.
 
 **Contrato detalhado:** `docs/outcome_evaluation.md`.
+
+---
+
+## D-019 — Target de Outcome é pré-comprometido por sessão e métricas usam cohort homogêneo
+**Status:** aprovado
+
+Esta decisão **estende D-018** sem alterar sua regra de imutabilidade `Analysis → Outcome`.
+
+A FASE 7 deve impedir hindsight bias também na definição do target experimental:
+
+- horizonte e threshold pertencem a uma `OutcomeEvaluationPolicy` identificada e imutável;
+- no MVP existe no máximo uma policy por sessão/experimento;
+- a policy registra `bound_at` a partir do relógio lógico autoritativo da sessão no instante do compromisso; o chamador não pode backdate esse valor;
+- uma Analysis somente é elegível quando `policy.session_id == Analysis.session_id` e `policy.bound_at <= Analysis.timestamp`;
+- uma policy criada depois dessa fronteira não torna Analysis histórica retroativamente elegível;
+- `OutcomeEvaluationService` não aceita `OutcomeConfig` arbitrário no instante de avaliação; carrega a policy da sessão;
+- cada Outcome registra `policy_id` e deve reproduzir exatamente horizonte e threshold da policy;
+- no MVP, mudança de target exige nova sessão/experimento; múltiplas policies dentro da mesma sessão são `FUTURE`;
+- todo relatório métrico corresponde a exatamente um `policy_id`;
+- confusion matrix, accuracy, precision, recall, coverage, uncertain frequency e confidence calibration não podem agregar silenciosamente Outcomes de policies diferentes.
+
+**Motivo:** impedir escolha retrospectiva de target depois de observar o futuro e evitar métricas que misturem definições incompatíveis de resultado realizado.
+
+**Impactos:** futura persistência da FASE 7 precisa representar `outcome_evaluation_policies`; `Outcome` referencia policy; consultas de Outcomes para métricas devem preservar/validar cohort por `policy_id`. Nenhum código ou migration é criado por esta decisão documental.
+
+**Contrato detalhado:** `docs/outcome_evaluation.md`.
