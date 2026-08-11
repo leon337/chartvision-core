@@ -56,3 +56,9 @@ class FeatureEngine:
             )
             variance = sum(squared_deviations, Decimal("0")) / return_count
             return context.sqrt(variance)
+
+    @staticmethod
+    def higher_high(candle: Candle, previous_candle: Candle) -> bool | None:
+        if not candle.is_closed or not previous_candle.is_closed:
+            return None
+        return candle.high > previous_candle.high
