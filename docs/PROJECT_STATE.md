@@ -14,6 +14,8 @@
 - **Branch ativa:** `phase-5-market-features-mvp`
 - **Último incremento técnico revalidado:** `1915369f123fed9109e3ee9155be777f63672582`
 - **CI técnico revalidado:** run `#116` / `31463891443` — SUCCESS
+- **Último HEAD operacional validado:** `07128e7cf6f77e3f9e3d99bc15eade6725b8fb4e`
+- **CI final do incremento:** run `#118` / `31464104850` — SUCCESS
 - **Últimos PASS sequenciais:** FASE 0 — FOUNDATION; FASE 1 — REPLAY MVP; FASE 2 — VISUAL OBSERVER MVP; FASE 3 — CANDLE RECONSTRUCTION MVP; FASE 4 — TEMPORAL MEMORY MVP
 - **Próxima fase:** FASE 6 — ANALYSIS LAB MVP — bloqueada até `PHASE_CLOSE = PASS` da FASE 5
 - **Issue mestra:** `#1 — MASTER — ChartVision Core v1 Roadmap`
@@ -144,6 +146,8 @@ A FASE 5 foi aberta após o PASS formal da FASE 4 e seu lifecycle de início foi
 - branch ativa: `phase-5-market-features-mvp`;
 - último incremento técnico aprovado: `1915369f123fed9109e3ee9155be777f63672582`;
 - CI desse incremento: run `#116` / `31463891443` — SUCCESS;
+- HEAD operacional final do incremento: `07128e7cf6f77e3f9e3d99bc15eade6725b8fb4e`;
+- CI final do incremento: run `#118` / `31464104850` — SUCCESS;
 - nenhuma PR aberta da FASE 5 no momento da revalidação;
 - nenhuma branch concorrente `phase-5` identificada.
 
