@@ -301,8 +301,8 @@ Pendente dentro da FASE 5:
 Não há feature funcional pendente no escopo congelado da FASE 5.
 
 Último incremento técnico aprovado:
-- HEAD `97e6213d0ed4146228130b536737da75e8573ba8`;
-- CI run `#112` / `31463537930` — SUCCESS.
+- HEAD `1915369f123fed9109e3ee9155be777f63672582`;
+- CI run `#116` / `31463891443` — SUCCESS.
 
 O fechamento formal continua pendente. FASE 5 não é PASS e FASE 6 não está autorizada enquanto não houver revisão final, validações de fechamento e `chartvision-phase-close = PASS`.
 
