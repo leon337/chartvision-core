@@ -14,11 +14,11 @@
 | 3 | Candle Reconstruction MVP | ✅ PASS |
 | 4 | Temporal Memory MVP | ✅ PASS |
 | 5 | Market Features MVP | ✅ PASS |
-| 6 | Analysis Lab MVP | ⬜ PENDING |
-| 7 | Outcome Evaluation MVP | 🔒 BLOCKED |
+| 6 | Analysis Lab MVP | ✅ PASS |
+| 7 | Outcome Evaluation MVP | ⬜ PENDING |
 | 8 | Dashboard MVP | 🔒 BLOCKED |
 
-A FASE 6 é a única próxima fase autorizável. `PENDING` não significa iniciada: sua abertura exige novo chat dedicado e novo `chartvision-phase-start = READY`. As fases 7 e 8 continuam bloqueadas e dependentes do PASS sequencial das fases anteriores.
+A FASE 7 é a única próxima fase autorizável. `PENDING` não significa iniciada: sua abertura exige novo chat dedicado e novo `chartvision-phase-start = READY`. A FASE 8 continua bloqueada e dependente do PASS sequencial da FASE 7.
 
 ## Regra de progressão
 
@@ -286,29 +286,74 @@ Nenhuma nova decisão arquitetural material foi necessária. `docs/DECISIONS.md`
 
 ---
 
-## FASE 6 — ANALYSIS LAB MVP — ⬜ PENDING
+## FASE 6 — ANALYSIS LAB MVP — ✅ PASS
 
 ### Objetivo
-Classificar o estado do gráfico usando somente informação disponível até o instante analisado.
+Classificar deterministicamente o estado conhecido do gráfico usando somente informação disponível até `as_of`, com persistência imutável e auditável da decisão.
 
-### Estados
-- `UP`;
-- `DOWN`;
-- `SIDEWAYS`;
-- `UNCERTAIN`.
+### Entregas concluídas
+- `AnalysisConfig` e `AnalysisDecision` imutáveis;
+- `MarketState.UP`, `DOWN`, `SIDEWAYS` e `UNCERTAIN`;
+- `AnalysisEngine` puro, determinístico e sem storage/Ground Truth/Replay/OutcomeEvaluator;
+- `AnalysisLabService` com fronteira `get_candles_as_of(session_id, as_of)`;
+- política estrutural de candles fechados;
+- `required_closed_candles = max(trend_pairs + 1, lateralization_window_candles)`;
+- `data_quality` pela menor `vision_confidence` da janela fechada requerida;
+- gate de qualidade e precedência HISTÓRICO → QUALIDADE → SIDEWAYS → UP/DOWN → UNCERTAIN;
+- `Analysis.timestamp == as_of`;
+- `StorageProvider.save_analysis` / `get_analysis`;
+- `AnalysisConflictError`;
+- `AnalysisRecord`;
+- migration `0005_create_analyses`;
+- `analyze_and_record`;
+- idempotência por `analysis_id`, conflito explícito e imutabilidade;
+- evidence determinística, ordenada e auditável.
 
-### Regra crítica
-É proibido qualquer `future leakage`.
+### Anti-future-leakage
+Foram comprovados no fluxo completo `AnalysisLabService.analyze(as_of=T)`:
+- candle futuro não altera `AnalysisDecision` histórico;
+- snapshot futuro não altera `AnalysisDecision` histórico;
+- evolução futura do mesmo candle canônico não altera `AnalysisDecision` histórico.
 
-### Critério de aceite
-Teste automatizado comprova que nenhum candle futuro participa da análise.
+Também foi validado o cenário persistente `analyze_and_record(T)` antes/depois de adicionar futuro, preservando a mesma `Analysis` e uma única linha persistida.
 
-### Autorização
-É a próxima fase autorizável após o PASS formal da FASE 5. Deve iniciar em **novo chat dedicado** e somente depois de novo `chartvision-phase-start = READY`. Nenhuma implementação da FASE 6 ocorreu durante o fechamento da FASE 5.
+### Gate — PASS
+Todos os 15 critérios de aceite canônicos foram verificados individualmente e passaram.
+
+Evidências:
+- branch `phase-6-analysis-lab-mvp`;
+- HEAD técnico `dcf63c4670cdf316eaff3dbeab2141167ad836fd`;
+- branch CI run `#134` / `31479821467`, attempt 4 — SUCCESS;
+- PR `#9 — feat: complete Phase 6 Analysis Lab MVP` — merged;
+- PR CI run `#135` / `31481693819` — SUCCESS;
+- merge funcional em `main` `4a9b2035f098178f4bffd98a66603711f3397938`;
+- CI pós-merge run `#136` / `31483381451` — SUCCESS;
+- `ruff check app` — SUCCESS;
+- `pytest -q` — `190 passed, 64 skipped`;
+- PostgreSQL real FASES 4/5/6 — `64 passed, 6 warnings`;
+- migrations `upgrade head`, `downgrade base` e novo `upgrade head` — SUCCESS;
+- frontend build, Docker Compose, backend/frontend health e governance-memory — SUCCESS.
+
+O HEAD documental final e seu CI são registrados na Issue Mestra #1 depois que o CI do commit de fechamento termina, evitando referência recursiva em arquivo versionado.
+
+### Revisão de escopo
+Não foram implementados OutcomeEvaluator funcional, Outcome model/persistence, OutcomeRecord, tabela `outcomes`, accuracy, precision, recall, confusion matrix, coverage, calibração por futuro, Dashboard, API/UI funcional de Analysis, novos indicadores, ML/RL, previsão/recomendação financeira, execução, corretoras ou dinheiro real. Nenhuma funcionalidade da FASE 7/8 foi iniciada.
+
+### Decisões
+Nenhuma nova decisão arquitetural material foi necessária. D-008, D-009 e D-010 já cobrem `UNCERTAIN`, anti-future-leakage e imutabilidade temporal da análise; `docs/DECISIONS.md` permanece inalterado.
+
+### Limitações conhecidas
+- v1 restrito a replay/ambiente controlado;
+- classificação rule-based, sem inferência probabilística;
+- `confidence` não é probabilidade estatística;
+- `source_confidence` não participa de `data_quality`;
+- avaliação de outcome e métricas de desempenho permanecem fora da FASE 6;
+- API/UI funcional de Analysis permanece fora da FASE 6;
+- warning deprectado do Alembic sobre `path_separator` permanece não bloqueante.
 
 ---
 
-## FASE 7 — OUTCOME EVALUATION MVP — 🔒 BLOCKED
+## FASE 7 — OUTCOME EVALUATION MVP — ⬜ PENDING
 
 ### Objetivo
 Comparar análises registradas com o que ocorreu posteriormente no replay.
@@ -325,8 +370,8 @@ Comparar análises registradas com o que ocorreu posteriormente no replay.
 ### Regra
 A previsão original nunca pode ser alterada retrospectivamente.
 
-### Bloqueio sequencial
-Aguarda `PHASE_CLOSE = PASS` da FASE 6.
+### Autorização
+É a próxima fase autorizável após o PASS formal da FASE 6. Deve iniciar somente em **novo chat dedicado** e depois de novo `chartvision-phase-start = READY`. Nenhuma implementação da FASE 7 ocorreu durante o fechamento da FASE 6.
 
 ---
 

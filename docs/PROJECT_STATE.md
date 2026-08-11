@@ -7,17 +7,17 @@
 ## Estado atual
 
 - **Versão de planejamento:** v1 congelado
-- **Fase atual concluída:** FASE 5 — MARKET FEATURES MVP
+- **Fase atual concluída:** FASE 6 — ANALYSIS LAB MVP
 - **Status:** ✅ PASS
-- **Últimos PASS sequenciais:** FASE 0 — FOUNDATION; FASE 1 — REPLAY MVP; FASE 2 — VISUAL OBSERVER MVP; FASE 3 — CANDLE RECONSTRUCTION MVP; FASE 4 — TEMPORAL MEMORY MVP; FASE 5 — MARKET FEATURES MVP
-- **Merge funcional da FASE 5:** `c276b966738abd65ac6c0658e5a9771d558fdb29`
-- **CI pós-merge da FASE 5:** run `#122` / `31465857520` — SUCCESS
-- **Próxima fase autorizável:** FASE 6 — ANALYSIS LAB MVP
-- **Fases posteriores:** bloqueadas até PASS sequencial
+- **Últimos PASS sequenciais:** FASE 0 — FOUNDATION; FASE 1 — REPLAY MVP; FASE 2 — VISUAL OBSERVER MVP; FASE 3 — CANDLE RECONSTRUCTION MVP; FASE 4 — TEMPORAL MEMORY MVP; FASE 5 — MARKET FEATURES MVP; FASE 6 — ANALYSIS LAB MVP
+- **Merge funcional da FASE 6:** `4a9b2035f098178f4bffd98a66603711f3397938`
+- **CI pós-merge da FASE 6:** run `#136` / `31483381451` — SUCCESS
+- **Próxima fase autorizável:** FASE 7 — OUTCOME EVALUATION MVP
+- **Fases posteriores:** FASE 8 bloqueada até PASS sequencial da FASE 7
 - **Issue mestra:** `#1 — MASTER — ChartVision Core v1 Roadmap`
 - **Modelo de trabalho:** um chat dedicado por fase + GitHub como memória oficial
 
-O PASS da FASE 5 autoriza somente abrir a FASE 6 em um novo chat dedicado e executar/reproduzir `.agents/skills/chartvision-phase-start/SKILL.md`. A FASE 6 não foi iniciada neste fechamento.
+O PASS da FASE 6 autoriza somente abrir a FASE 7 em um novo chat dedicado e executar/reproduzir `.agents/skills/chartvision-phase-start/SKILL.md`. A FASE 7 não foi iniciada neste fechamento.
 
 ## Evidência da FASE 1 — REPLAY MVP
 
@@ -240,19 +240,96 @@ Nenhuma nova decisão arquitetural material foi necessária durante a FASE 5. As
 - a lateralização é deliberadamente booleana e não realiza classificação do `AnalysisEngine`;
 - o aviso de depreciação do Alembic sobre ausência de `path_separator` permanece não bloqueante.
 
+## Evidência da FASE 6 — ANALYSIS LAB MVP
+
+A FASE 6 foi encerrada formalmente após revisão integral do diff desde o último fechamento da FASE 5, reprodução dos gates técnicos, validação individual dos 15 critérios canônicos, revisão anti-future-leakage, integração do PR #9 e CI pós-merge verde.
+
+### Escopo implementado
+- `AnalysisConfig` e `AnalysisDecision` imutáveis;
+- `MarketState.UP`, `DOWN`, `SIDEWAYS` e `UNCERTAIN`;
+- `AnalysisEngine` puro e determinístico;
+- `AnalysisLabService` como orquestração point-in-time;
+- leitura exclusivamente por `StorageProvider.get_candles_as_of(session_id, as_of)`;
+- `required_closed_candles = max(trend_pairs + 1, lateralization_window_candles)`;
+- somente candles fechados participam da janela estrutural;
+- `data_quality` pela menor `vision_confidence` da janela fechada requerida;
+- `source_confidence` não participa do Analysis Lab MVP;
+- gate de qualidade e precedência HISTÓRICO → QUALIDADE → SIDEWAYS → UP/DOWN → UNCERTAIN;
+- `Analysis.timestamp == as_of`;
+- `StorageProvider.save_analysis` e `get_analysis`;
+- `AnalysisConflictError`;
+- `AnalysisRecord` e migration `0005_create_analyses`;
+- `analyze_and_record`;
+- persistência imutável/idempotente por `analysis_id`;
+- evidence determinística, ordenada e auditável.
+
+### Anti-future-leakage comprovado
+O fluxo completo `AnalysisLabService.analyze(as_of=T)` foi exercitado antes/depois de adicionar, separadamente:
+- candle futuro;
+- snapshot futuro;
+- evolução posterior do mesmo candle canônico.
+
+Em todos os casos, o `AnalysisDecision` histórico permaneceu idêntico. O cenário persistente também validou `analyze_and_record(T)` antes/depois de futuro com `A1 == A2`, `persisted == A1` e uma única linha persistida.
+
+### Persistência e imutabilidade
+- mesmo `analysis_id` + mesmos dados → operação idempotente;
+- mesmo `analysis_id` + mudança em `session_id`, `timestamp`, `market_state`, `confidence`, `data_quality` ou `evidence` → `AnalysisConflictError`;
+- o registro original permanece preservado;
+- `data_quality=None` é válido;
+- ordem de `evidence` é preservada;
+- sessão inexistente é rejeitada;
+- não existe UPDATE semântico da análise persistida.
+
+### Referências técnicas e integração
+- branch funcional: `phase-6-analysis-lab-mvp`;
+- HEAD técnico: `dcf63c4670cdf316eaff3dbeab2141167ad836fd`;
+- CI final/reproduzido da branch: run `#134` / `31479821467`, attempt 4 — SUCCESS;
+- PR `#9 — feat: complete Phase 6 Analysis Lab MVP` — merged;
+- CI do PR: run `#135` / `31481693819` — SUCCESS;
+- merge funcional em `main`: `4a9b2035f098178f4bffd98a66603711f3397938`;
+- CI pós-merge: run `#136` / `31483381451` — SUCCESS.
+
+O HEAD documental final e seu CI são registrados na Issue Mestra #1 após a execução do CI do commit de fechamento, evitando referência recursiva desatualizada dentro de um arquivo versionado.
+
+### Testes e gates
+- `ruff check app` — SUCCESS;
+- `pytest -q` — `190 passed, 64 skipped`;
+- PostgreSQL real FASES 4/5/6 — `64 passed, 6 warnings`;
+- migration `0005_create_analyses` aplicada com sucesso;
+- `alembic upgrade head`, `downgrade base` e novo `upgrade head` — SUCCESS;
+- frontend build — SUCCESS;
+- Docker Compose, backend health, frontend health e PostgreSQL health — SUCCESS;
+- governance-memory — SUCCESS;
+- 15/15 critérios de aceite — PASS.
+
+### Revisão de escopo
+A FASE 6 não implementou OutcomeEvaluator funcional, Outcome model/persistence, OutcomeRecord, tabela `outcomes`, accuracy, precision, recall, confusion matrix, coverage, calibração de resultados, Dashboard, UI/API funcional adicional de Analysis, novos indicadores, ML/RL, previsão/recomendação financeira, compra/venda, gestão de capital, corretoras, execução ou dinheiro real. Nenhuma funcionalidade da FASE 7/8 foi iniciada.
+
+### Decisões
+Nenhuma nova decisão arquitetural material foi necessária. D-008, D-009 e D-010 já cobrem `UNCERTAIN`, proibição de future leakage e imutabilidade temporal das análises; `docs/DECISIONS.md` permaneceu inalterado.
+
+### Limitações conhecidas
+- o v1 permanece restrito ao ambiente/replay controlado;
+- o classificador da FASE 6 é rule-based e não probabilístico;
+- `confidence` não representa probabilidade estatística;
+- `source_confidence` não participa de `data_quality` nesta fase;
+- Outcome Evaluation e métricas de desempenho pertencem à FASE 7;
+- API/UI funcional de Analysis permanece fora da FASE 6;
+- o aviso de depreciação do Alembic sobre ausência de `path_separator` permanece não bloqueante.
+
 ## Próxima missão prevista
 
-### FASE 6 — ANALYSIS LAB MVP
+### FASE 7 — OUTCOME EVALUATION MVP
 
-O PASS da FASE 5 **autoriza apenas abrir** a FASE 6 em um novo chat dedicado.
+O PASS da FASE 6 **autoriza apenas abrir** a FASE 7 em um novo chat dedicado.
 
-Antes de qualquer planejamento ou implementação da FASE 6:
-1. abrir chat dedicado da FASE 6;
+Antes de qualquer planejamento ou implementação da FASE 7:
+1. abrir chat dedicado da FASE 7;
 2. executar/reproduzir `.agents/skills/chartvision-phase-start/SKILL.md`;
 3. recuperar novamente branch, HEAD, CI, Issue Mestra, escopo, roadmap e decisões;
 4. produzir novo Phase Brief.
 
-A FASE 6 **não foi iniciada** neste ciclo.
+A FASE 7 **não foi iniciada** neste ciclo.
 
 ## Estado de implementação por fase
 
@@ -264,8 +341,8 @@ A FASE 6 **não foi iniciada** neste ciclo.
 | 3 — Candle Reconstruction | ✅ PASS | Pixel→preço, tracking, normalização, OHLC e métricas pós-reconstrução validados |
 | 4 — Temporal Memory | ✅ PASS | PostgreSQL temporal, deduplicação, fechamento e rastreabilidade histórica validados |
 | 5 — Market Features | ✅ PASS | Point-in-time + especificação + 10 features funcionais validados e integrados |
-| 6 — Analysis Lab | ⬜ PENDING | Próxima fase autorizável; exige novo PHASE START em novo chat |
-| 7 — Outcome Evaluation | 🔒 BLOCKED | Aguarda PASS da FASE 6 |
+| 6 — Analysis Lab | ✅ PASS | Classificação point-in-time, quatro estados, anti-future-leakage e Analysis imutável validados |
+| 7 — Outcome Evaluation | ⬜ PENDING | Próxima fase autorizável; exige novo PHASE START em novo chat |
 | 8 — Dashboard | 🔒 BLOCKED | Aguarda PASS da FASE 7 |
 
 ## Regra de retomada

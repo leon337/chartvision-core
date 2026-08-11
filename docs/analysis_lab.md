@@ -1139,3 +1139,105 @@ OutcomeEvaluator
 ```
 
 O Analysis Lab MVP é deliberadamente simples, determinístico, auditável e point-in-time.
+
+---
+
+# 34. Fechamento formal da FASE 6
+
+A FASE 6 foi verificada formalmente pelo procedimento `.agents/skills/chartvision-phase-close/SKILL.md` em 2026-08-11, após integração funcional e CI pós-merge verde.
+
+## Escopo implementado
+
+- `AnalysisConfig`, `AnalysisDecision` e os quatro valores de `MarketState` (`UP`, `DOWN`, `SIDEWAYS`, `UNCERTAIN`);
+- `AnalysisEngine` puro e determinístico;
+- `AnalysisLabService` como orquestração point-in-time;
+- fronteira obrigatória `StorageProvider.get_candles_as_of(session_id, as_of)`;
+- política de somente candles fechados para histórico estrutural;
+- `required_closed_candles = max(trend_pairs + 1, lateralization_window_candles)`;
+- `data_quality` pela menor `vision_confidence` da janela fechada requerida;
+- `Analysis.timestamp == as_of`;
+- `StorageProvider.save_analysis` e `get_analysis`;
+- `AnalysisConflictError`;
+- `AnalysisRecord` e migration `0005_create_analyses`;
+- persistência imutável e idempotente por `analysis_id`;
+- `evidence` determinística, ordenada e auditável;
+- `analyze_and_record`.
+
+## Regras e precedência comprovadas
+
+Os quatro estados e a precedência normativa foram comprovados por testes automatizados:
+
+```text
+HISTÓRICO
+→ QUALIDADE
+→ SIDEWAYS
+→ UP / DOWN
+→ UNCERTAIN
+```
+
+Histórico insuficiente, qualidade ausente ou abaixo do threshold e estrutura mista não lateral retornam `UNCERTAIN`; igualdade no threshold é aceita; lateralização verdadeira prevalece sobre tendência direcional.
+
+## Anti-future-leakage
+
+Testes PostgreSQL integrados exercitam `AnalysisLabService.analyze(as_of=T)` antes e depois de adicionar separadamente:
+
+1. candle futuro;
+2. snapshot futuro;
+3. evolução posterior do mesmo candle canônico.
+
+Nos três casos o `AnalysisDecision` histórico permanece idêntico. O cenário persistente também comprova:
+
+```text
+analyze_and_record(T) → A1
+adicionar futuro
+analyze_and_record(T) → A2
+A1 == A2
+persisted == A1
+count == 1
+```
+
+Nenhuma análise histórica é reescrita para concordar com informação futura.
+
+## Persistência e imutabilidade
+
+A persistência aceita regravação idempotente do mesmo `analysis_id` apenas quando todos os dados são iguais. Mudança de `session_id`, `timestamp`, `market_state`, `confidence`, `data_quality` ou `evidence` para o mesmo ID produz `AnalysisConflictError` e preserva o registro original. `data_quality=None` é válido, a ordem de `evidence` é preservada e sessão inexistente é rejeitada.
+
+## Migration
+
+`0005_create_analyses` possui `down_revision = 0004_create_candles`, cria exclusivamente a tabela `analyses` e seu downgrade remove essa tabela. Nenhuma tabela de outcomes, métricas ou dashboard foi introduzida.
+
+## Evidências técnicas
+
+- branch: `phase-6-analysis-lab-mvp`;
+- HEAD técnico: `dcf63c4670cdf316eaff3dbeab2141167ad836fd`;
+- branch CI reproduzido: run `#134` / `31479821467`, attempt 4 — SUCCESS;
+- PR `#9 — feat: complete Phase 6 Analysis Lab MVP` — merged;
+- PR CI: run `#135` / `31481693819` — SUCCESS;
+- merge funcional em `main`: `4a9b2035f098178f4bffd98a66603711f3397938`;
+- CI pós-merge: run `#136` / `31483381451` — SUCCESS;
+- `ruff check app` — SUCCESS;
+- `pytest -q` — `190 passed, 64 skipped`;
+- PostgreSQL real FASES 4/5/6 — `64 passed, 6 warnings`;
+- Alembic `upgrade head`, `downgrade base` e novo `upgrade head` — SUCCESS;
+- frontend build, Docker Compose, backend health, frontend health e `governance-memory` — SUCCESS;
+- 15/15 critérios de aceite — PASS.
+
+O HEAD documental final e seu CI são registrados na Issue Mestra #1 após a execução do CI do commit documental, evitando referência recursiva dentro deste arquivo versionado.
+
+## Decisões
+
+Nenhuma nova decisão arquitetural material foi necessária. D-008 (`UNCERTAIN` como estado válido), D-009 (proibição de future leakage) e D-010 (imutabilidade temporal de análises) já cobrem as decisões necessárias; `docs/DECISIONS.md` permanece inalterado.
+
+## Limitações conhecidas
+
+- v1 permanece restrito a replay/ambiente controlado;
+- o classificador é deliberadamente rule-based e não probabilístico;
+- `confidence` não é probabilidade estatística e, para estados determinados, é limitada por `data_quality`;
+- `source_confidence` não participa do cálculo de `data_quality` da FASE 6;
+- nenhuma avaliação de outcome ou métrica de acurácia foi implementada;
+- nenhuma API/UI funcional de Analysis foi adicionada;
+- o warning de depreciação do Alembic sobre ausência de `path_separator` permanece não bloqueante.
+
+## Fases posteriores
+
+A FASE 7 não foi iniciada durante este fechamento. O PASS formal da FASE 6 somente torna a **FASE 7 — OUTCOME EVALUATION MVP** a próxima fase autorizável, a ser aberta em novo chat e submetida a novo `chartvision-phase-start`.
