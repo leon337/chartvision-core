@@ -62,3 +62,9 @@ class FeatureEngine:
         if not candle.is_closed or not previous_candle.is_closed:
             return None
         return candle.high > previous_candle.high
+
+    @staticmethod
+    def higher_low(candle: Candle, previous_candle: Candle) -> bool | None:
+        if not candle.is_closed or not previous_candle.is_closed:
+            return None
+        return candle.low > previous_candle.low
