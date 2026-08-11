@@ -84,7 +84,76 @@ Controles:
 - Resume;
 - Reset.
 
-Quando o replay está `running`, a interface solicita avanços de 60 segundos virtuais. O intervalo real de interface serve apenas para acelerar a demonstração; a autoridade temporal permanece no relógio virtual do backend.
+Quando o replay está `running`, a interface solicita avanços de 60 segundos virtuais. O intervalo real de interface serve apenas para acelerar a demonstração; a autoridade temporal operacional permanece no relógio virtual do backend.
+
+## Semântica de cursor e reset para consumidores experimentais posteriores
+
+A FASE 1 aprovou `Reset` como operação de reprodução. O comportamento funcional vigente do `ReplaySource.reset()` é:
+
+```text
+_position = 0
+_current_time = None
+_status = IDLE
+```
+
+Portanto o relógio/cursor operacional atual do replay é **rebobinável**.
+
+Esse comportamento continua correto e **não é alterado retroativamente** por documentação da FASE 7.
+
+A distinção obrigatória para consumidores experimentais posteriores é:
+
+```text
+replay_cursor_time
+=
+posição operacional corrente
+pode rebobinar com reset
+```
+
+versus:
+
+```text
+session_exposure_watermark
+=
+maior instante lógico já exposto
+na mesma sessão/experimento
+não rebobina com reset
+```
+
+Consequência:
+
+```text
+reset
+→ pode provar que o cursor voltou
+X→ não prova que o futuro nunca foi visto antes
+```
+
+Outcome Evaluation não pode usar `_current_time`, `ReplaySnapshot.current_time` ou posição corrente rebobinada como prova exclusiva de precommit experimental.
+
+O contrato futuro da FASE 7 deve manter um exposure watermark separado e monotonicamente não decrescente por sessão. Esse estado não faz parte da implementação concluída da FASE 1 e **não é implementado por esta atualização documental**.
+
+Exemplo normativo para consumidores posteriores:
+
+```text
+sessão avança até 10:30
+replay_cursor_time = 10:30
+session_exposure_watermark = 10:30
+
+reset
+replay_cursor_time = início / None
+session_exposure_watermark = 10:30
+
+replay avança novamente até 10:15
+replay_cursor_time = 10:15
+session_exposure_watermark = 10:30
+
+replay avança até 10:45
+replay_cursor_time = 10:45
+session_exposure_watermark = 10:45
+```
+
+Reset da mesma reprodução não deve ser reinterpretado silenciosamente como nova sessão/experimento para Outcome Evaluation. Mudança de target experimental no MVP continua exigindo nova sessão/experimento conforme `docs/outcome_evaluation.md` e D-019/D-020.
+
+O exposure watermark contém somente a fronteira temporal já exposta. Ele não fornece OHLC ao AnalysisEngine, FeatureEngine ou pipeline visual e não modifica o gate de Ground Truth da FASE 1.
 
 ## Separação arquitetural
 
@@ -103,6 +172,8 @@ Imagem do gráfico
 
 A FASE 1 não implementa o leitor visual. A futura FASE 2 deverá observar somente a imagem do gráfico e não poderá acessar os OHLC verdadeiros para reconstrução.
 
+Para fases experimentais posteriores, a posição corrente do replay e a memória de exposição são responsabilidades semanticamente distintas; isso não muda o fluxo visual acima.
+
 ## Testes executados
 
 Backend:
@@ -118,6 +189,8 @@ Testes específicos cobrem:
 - Reset volta ao estado inicial;
 - replay após Reset reproduz a mesma sequência;
 - API mantém determinismo e gate de dados futuros.
+
+Esses testes continuam sendo a autoridade para a semântica funcional da FASE 1. A futura FASE 7 deverá adicionar testes próprios para garantir que seu exposure watermark não diminui quando esses resets válidos da FASE 1 ocorrem.
 
 Frontend:
 - `npm run build` — PASS.
@@ -154,6 +227,8 @@ Durante o desenvolvimento, o run `#26` falhou em `foundation-docker` porque o da
 - [x] stack Docker passa;
 - [x] CI passa.
 
+A separação posterior entre cursor rebobinável e exposure watermark não modifica nem invalida esses critérios; ela impede apenas que uma fase posterior atribua ao cursor uma semântica experimental que ele nunca teve.
+
 ## Fora do escopo preservado
 
 Não foram implementados:
@@ -165,18 +240,23 @@ Não foram implementados:
 - market features;
 - AnalysisEngine;
 - OutcomeEvaluator;
+- exposure watermark persistente;
+- OutcomeEvaluationPolicy;
 - integrações externas;
 - execução de ordens ou dinheiro real.
 
 ## Limitações conhecidas
 
 1. Dataset pequeno/artificial, suficiente para o cenário de referência da FASE 1.
-2. Estado do replay em memória e de sessão única; persistência pertence à FASE 4.
+2. Estado do replay em memória e de sessão única; persistência pertence às fases posteriores conforme seus contratos.
 3. O renderer prioriza simplicidade do MVP, não otimização para datasets grandes.
 4. Nenhuma observação visual é realizada ainda; isso pertence exclusivamente à FASE 2.
+5. O cursor/`current_time` da FASE 1 é intencionalmente rebobinável por Reset e não deve ser usado por fases posteriores como prova histórica de não exposição.
 
 ## Handoff
 
 A FASE 1 entrega um gráfico controlado e determinístico que pode servir como fonte visual para a FASE 2.
+
+A semântica funcional da FASE 1 permanece fechada/PASS. Consumidores posteriores que precisem auditar exposição através de resets devem manter estado próprio não rebobinável conforme a decisão de sua fase, sem alterar `ReplaySource.reset()` retroativamente.
 
 A próxima fase **pode ser aberta**, mas não é iniciada por este documento. A FASE 2 deve começar em novo chat/sessão e executar `chartvision-phase-start` antes de qualquer implementação.

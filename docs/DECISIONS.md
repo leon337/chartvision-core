@@ -197,3 +197,32 @@ A FASE 7 deve impedir hindsight bias também na definição do target experiment
 **Impactos:** futura persistência da FASE 7 precisa representar `outcome_evaluation_policies`; `Outcome` referencia policy; consultas de Outcomes para métricas devem preservar/validar cohort por `policy_id`. Nenhum código ou migration é criado por esta decisão documental.
 
 **Contrato detalhado:** `docs/outcome_evaluation.md`.
+
+---
+
+## D-020 — Precommit usa exposure watermark não rebobinável
+**Status:** aprovado
+
+Esta decisão **estende e refina D-019** exclusivamente na prova temporal do precommit. As regras de policy imutável, uma policy por sessão, Outcome→Policy e cohort homogêneo de D-019 permanecem válidas.
+
+O cursor operacional do replay e a memória experimental de exposição são conceitos distintos:
+
+- `replay_cursor_time` representa a posição corrente da reprodução e pode ser rebobinado por `reset`;
+- `session_exposure_watermark` representa a maior fronteira lógica de mercado já exposta na sessão/experimento;
+- antes da primeira exposição, o watermark utiliza a origem lógica determinística e timezone-aware da sessão como baseline;
+- o watermark é monotonicamente não decrescente durante toda a vida da sessão;
+- avanço além do máximo anterior eleva o watermark;
+- reset, pause/resume, stop ou reexecução abaixo do máximo anterior nunca reduzem o watermark;
+- reset não cria silenciosamente uma nova sessão/experimento;
+- `OutcomeEvaluationPolicy.bound_at` captura o `session_exposure_watermark` autoritativo no instante do registro, e não o cursor rebobinado;
+- a comparação de elegibilidade permanece inclusiva: `policy.bound_at <= Analysis.timestamp`; igualdade pode ser elegível, enquanto `Analysis.timestamp < policy.bound_at` é rejeitado;
+- uma Analysis anterior ao maior instante já exposto não se torna elegível por `reset`;
+- mudar horizonte/threshold continua exigindo nova sessão/experimento no MVP;
+- a futura persistência deve preservar/auditar o watermark através de múltiplos ciclos, reinvocação de serviço e restart, sem permitir regressão temporal;
+- o watermark contém somente metadado temporal e não fornece OHLC, features ou Ground Truth ao `AnalysisEngine`, `AnalysisLabService`, FeatureEngine ou pipeline visual.
+
+**Motivo:** o `ReplaySource.reset()` aprovado na FASE 1 rebobina o cursor/relógio corrente da reprodução. Se D-019 fosse interpretada como dependência desse cursor, seria possível observar futuro, resetar e registrar uma policy com falsa aparência de precommit. A fronteira monotônica elimina esse loophole sem alterar retroativamente a semântica funcional de reset da FASE 1.
+
+**Impactos:** a implementação futura da FASE 7 deve manter estado auditável de exposição por sessão, capturar `bound_at` dessa fronteira e testar explicitamente reset/replay repetido. Não é criada migration, coluna, tabela ou alteração em `ReplaySource` por esta decisão documental.
+
+**Contrato detalhado:** `docs/outcome_evaluation.md` e `docs/replay_system.md`.

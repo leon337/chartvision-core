@@ -19,9 +19,14 @@ Fluxo canônico:
 ```text
 Session / experimento
         │
-        ▼
+        ├── replay_cursor_time — operacional / rebobinável
+        │
+        └── session_exposure_watermark — monotônico / não rebobinável
+                         │
+                         ▼
 OutcomeEvaluationPolicy
 configuração comprometida e imutável
+bound_at = exposure watermark no registro
         │
         │ policy.bound_at <= Analysis.timestamp
         ▼
@@ -50,7 +55,7 @@ OutcomeEvaluationService
           métricas por policy homogênea
 ```
 
-A FASE 7 não reclassifica o passado. Ela adiciona uma avaliação posterior vinculada à `Analysis` original e à policy experimental que já estava comprometida antes daquela Analysis poder ser avaliada.
+A FASE 7 não reclassifica o passado. Ela adiciona uma avaliação posterior vinculada à `Analysis` original e à policy experimental que já estava comprometida sob uma fronteira de exposição **não rebobinável**.
 
 ---
 
@@ -62,13 +67,16 @@ A FASE 7 não reclassifica o passado. Ela adiciona uma avaliação posterior vin
 4. Somente a camada de Outcome Evaluation pode consultar Ground Truth posterior, e apenas para avaliar uma `Analysis` já registrada.
 5. A definição do target (`horizon_closed_candles` + `realized_return_threshold`) deve estar comprometida em uma `OutcomeEvaluationPolicy` imutável antes da Analysis elegível.
 6. `OutcomeEvaluationService` não aceita configuração arbitrária escolhida no instante de avaliação `E`.
-7. O resultado realizado possui somente `UP`, `DOWN` ou `SIDEWAYS`.
-8. `UNCERTAIN` pertence exclusivamente ao lado da previsão/`Analysis` e significa abstention.
-9. Nenhum Outcome é criado enquanto o horizonte comprometido não estiver integralmente disponível.
-10. O fim do dataset não autoriza encurtar o horizonte.
-11. Dados ausentes não são inventados.
-12. Métricas agregadas somente são válidas dentro de um cohort homogêneo de uma única policy.
-13. O domínio de avaliação deve permanecer determinístico e independente de infraestrutura.
+7. O cursor operacional do replay é rebobinável e **não pode** ser usado isoladamente como prova temporal de precommit.
+8. Cada sessão/experimento possui uma fronteira de exposição monotonicamente não decrescente (`session_exposure_watermark`) que nunca é reduzida por reset, pause/resume ou reexecução abaixo do máximo já exposto.
+9. `OutcomeEvaluationPolicy.bound_at` captura a fronteira não rebobinável da sessão no momento do compromisso.
+10. O resultado realizado possui somente `UP`, `DOWN` ou `SIDEWAYS`.
+11. `UNCERTAIN` pertence exclusivamente ao lado da previsão/`Analysis` e significa abstention.
+12. Nenhum Outcome é criado enquanto o horizonte comprometido não estiver integralmente disponível.
+13. O fim do dataset não autoriza encurtar o horizonte.
+14. Dados ausentes não são inventados.
+15. Métricas agregadas somente são válidas dentro de um cohort homogêneo de uma única policy.
+16. O domínio de avaliação deve permanecer determinístico e independente de infraestrutura.
 
 ---
 
@@ -109,7 +117,127 @@ Não existem defaults silenciosos.
 
 **Regra crítica:** `OutcomeConfig` não é uma escolha livre em `OutcomeEvaluationService.evaluate(...)`. No MVP, os seus valores entram na avaliação exclusivamente através da `OutcomeEvaluationPolicy` previamente comprometida da sessão.
 
-## 3.3 `OutcomeEvaluationPolicy`
+## 3.3 Replay cursor e Session Exposure Watermark
+
+A FASE 7 distingue obrigatoriamente dois conceitos temporais que não podem ser tratados como equivalentes.
+
+### Replay cursor
+
+O cursor representa a posição operacional corrente do replay:
+
+```text
+replay_cursor_time
+```
+
+Ele pode:
+
+- avançar;
+- pausar e continuar;
+- ser rebobinado por `reset`;
+- voltar ao início/estado sem `current_time` no comportamento vigente da FASE 1.
+
+Portanto:
+
+```text
+replay_cursor_time
+≠
+prova de que instantes posteriores nunca foram observados antes
+```
+
+O cursor é adequado para controlar a reprodução corrente, mas **não é autoridade suficiente para provar precommit experimental**.
+
+### Session Exposure Watermark
+
+Cada sessão/experimento possui conceitualmente:
+
+```text
+session_exposure_watermark
+```
+
+Semântica normativa:
+
+```text
+session_exposure_watermark
+=
+maior instante lógico do mercado
+que já foi exposto nessa sessão/experimento
+```
+
+A fronteira é monotonicamente não decrescente:
+
+```text
+W_new >= W_old
+```
+
+Quando a sessão expõe um instante lógico `C` superior ao máximo anterior:
+
+```text
+W_new = max(W_old, C)
+```
+
+Uma exposição inclui o avanço lógico do replay tornado observável no contexto da sessão, inclusive o tempo lógico usado para liberar/representar o estado visível. O watermark registra somente a fronteira temporal; ele não carrega OHLC, features ou resultado futuro.
+
+### Origem antes da primeira exposição
+
+O contrato não deixa `bound_at` indefinido quando nenhuma observação de mercado ocorreu ainda.
+
+Cada sessão possui uma origem lógica determinística e timezone-aware:
+
+```text
+session_origin_time
+```
+
+Ela vem da configuração/metadado temporal autoritativo da sessão/replay e não é fornecida retroativamente pelo chamador. No replay controlado v1, corresponde à origem lógica determinística da reprodução.
+
+Antes de qualquer avanço/exposição, o estado auditável usa essa origem como baseline:
+
+```text
+session_exposure_watermark = session_origin_time
+```
+
+Esse baseline não significa que um OHLC ou candle futuro foi fornecido à Analysis; ele apenas estabelece a menor fronteira temporal auditável possível da sessão e garante binding determinístico desde o início.
+
+### Reset, pause/resume e novos ciclos
+
+`reset` pode rebobinar o cursor operacional, mas não a memória de exposição:
+
+```text
+Replay reset
+→ replay_cursor_time pode voltar ao início
+→ session_exposure_watermark permanece W
+```
+
+Exemplo:
+
+```text
+avanço até 10:30
+cursor = 10:30
+watermark = 10:30
+
+reset
+cursor = início / estado inicial
+watermark = 10:30
+
+novo avanço até 10:15
+cursor = 10:15
+watermark = 10:30
+
+novo avanço até 10:45
+cursor = 10:45
+watermark = 10:45
+```
+
+Também:
+
+- `pause` não reduz watermark;
+- `resume` não reduz watermark;
+- `stop` não reduz watermark;
+- repetir vários ciclos de replay na mesma sessão não reinicializa watermark;
+- somente uma **nova sessão/experimento explicitamente criada** possui origem/watermark próprios.
+
+`reset` operacional **não cria silenciosamente uma nova sessão/experimento** e não reabre a fronteira experimental de precommit.
+
+## 3.4 `OutcomeEvaluationPolicy`
 
 `OutcomeEvaluationPolicy` representa o precommit auditável da definição de Outcome para uma sessão/experimento.
 
@@ -128,25 +256,34 @@ Semântica:
 - `policy_id` identifica inequivocamente a policy;
 - `session_id` determina o experimento ao qual ela pertence;
 - horizonte e threshold formam a configuração imutável comprometida;
-- `bound_at` é o instante lógico autoritativo da sessão no qual a policy foi registrada.
+- `bound_at` é uma cópia imutável da fronteira de exposição não rebobinável da sessão no instante em que a policy foi registrada.
 
 ### Regra de captura de `bound_at`
 
-`bound_at` **não pode ser um timestamp retroativo arbitrariamente fornecido pelo chamador**.
+`bound_at` **não pode ser um timestamp retroativo arbitrariamente fornecido pelo chamador** e **não pode derivar exclusivamente do cursor atual rebobinável**.
 
-A operação futura de registro da policy deve obter `bound_at` do relógio lógico autoritativo da própria sessão/replay no momento do registro e persistir esse valor junto com a policy.
-
-Conceitualmente:
+A operação futura de registro deve ler a fronteira autoritativa e durável da sessão:
 
 ```text
-B = current_session_logical_time
+W = session_exposure_watermark
 register_policy(...)
-→ policy.bound_at = B
+→ policy.bound_at = W
 ```
 
-O chamador não pode fornecer um `B` anterior para simular precommit depois de o replay já ter avançado.
+É proibido:
 
-Essa regra não expõe OHLC/Ground Truth ao `AnalysisEngine`; utiliza somente a posição temporal autoritativa da sessão para registrar o compromisso experimental.
+```text
+observar futuro
+→ reset
+→ cursor volta ao início
+→ registrar policy usando cursor rebobinado
+```
+
+O reset não altera `W`; portanto a policy registrada após reset continua capturando o maior instante lógico já exposto na sessão.
+
+Se registro de policy e avanço/exposição puderem concorrer, a implementação futura deve estabelecer uma ordem consistente entre a atualização monotônica do watermark e a captura de `bound_at`. Uma policy nunca pode capturar um watermark inferior a uma exposição que já ocorreu na mesma sessão.
+
+Essa regra não expõe OHLC/Ground Truth ao `AnalysisEngine`; utiliza somente metadado temporal de auditoria da sessão.
 
 ### Cardinalidade MVP
 
@@ -162,7 +299,8 @@ Consequências:
 
 - não há ambiguidade sobre qual policy pertence a uma Analysis da sessão;
 - alteração de horizonte/threshold exige nova sessão/experimento no MVP;
-- múltiplas policies ou revisões de policy dentro da mesma sessão são `FUTURE` e exigem nova decisão arquitetural.
+- múltiplas policies ou revisões de policy dentro da mesma sessão são `FUTURE` e exigem nova decisão arquitetural;
+- `reset` não pode ser usado como substituto de nova sessão para escolher outro target.
 
 ### Elegibilidade temporal de uma Analysis
 
@@ -180,15 +318,42 @@ policy.session_id == Analysis.session_id
 policy.bound_at <= Analysis.timestamp
 ```
 
+A comparação é **inclusiva**.
+
 Se:
 
 ```text
-policy.bound_at > Analysis.timestamp
+T == policy.bound_at
+```
+
+a Analysis pode ser elegível, sujeito aos demais contratos, porque o compromisso foi feito sem que a sessão tivesse exposto instante lógico posterior a `T`.
+
+Se:
+
+```text
+T < policy.bound_at
 ```
 
 essa policy é tardia para aquela Analysis e a avaliação deve ser rejeitada explicitamente.
 
-Uma Analysis que não possuía policy elegível em ou antes de `T` **não pode receber Outcome retroativamente** escolhendo horizonte/threshold depois que o resultado já é conhecido.
+Exemplo após reset:
+
+```text
+watermark histórico W = 10:30
+reset
+policy registrada → bound_at = 10:30
+
+Analysis T = 10:20
+→ inelegível
+
+Analysis T = 10:30
+→ temporalmente elegível, se os demais contratos forem satisfeitos
+
+Analysis T = 10:40
+→ temporalmente elegível, se os demais contratos forem satisfeitos
+```
+
+Uma Analysis anterior à fronteira máxima já exposta **não pode receber Outcome retroativamente** escolhendo horizonte/threshold depois que seu futuro já foi observado.
 
 ### Imutabilidade e idempotência
 
@@ -211,7 +376,7 @@ Erro conceitual:
 OutcomeEvaluationPolicyConflictError
 ```
 
-## 3.4 `Outcome`
+## 3.5 `Outcome`
 
 `Outcome` representa uma avaliação posterior imutável de exatamente uma `Analysis`, produzida por exatamente uma `OutcomeEvaluationPolicy`.
 
@@ -296,17 +461,20 @@ A evidence do Outcome não substitui nem reescreve `Analysis.evidence`.
 
 ---
 
-# 4. Relação Policy → Analysis → Outcome
+# 4. Relação Session Exposure → Policy → Analysis → Outcome
 
 Cardinalidade canônica do MVP:
 
 ```text
 Session 1
-   ↓
+   │
+   ├── replay cursor (rebobinável)
+   └── exposure watermark (monotônico)
+              ↓
 0..1 OutcomeEvaluationPolicy
-   ↓
+              ↓
 0..N Analysis elegíveis
-   ↓
+              ↓
 0..1 Outcome por Analysis
 ```
 
@@ -323,6 +491,8 @@ policy.bound_at <= Analysis.timestamp
 Como existe no máximo uma policy por sessão no MVP, esse vínculo é unívoco.
 
 O Outcome registra `policy_id` e copia horizonte/threshold para auditoria. Esses valores copiados devem ser exatamente iguais aos da policy.
+
+O exposure watermark pertence ao estado auditável da sessão/experimento; não é parte da Analysis e não é uma Market Feature.
 
 ---
 
@@ -350,23 +520,36 @@ Para a policy:
 policy.bound_at = B
 ```
 
+Para a sessão:
+
+```text
+session_exposure_watermark = W
+```
+
+No instante de registro:
+
+```text
+B = W
+```
+
 Regras:
 
 ```text
-B, T e E devem ser timezone-aware
+B, T, E e W devem ser timezone-aware
 B <= T <= E
+W nunca diminui durante a vida da sessão
 ```
 
-`B` é capturado pelo relógio lógico autoritativo da sessão no registro da policy; `T` continua sendo o timestamp da Analysis; `E` é o corte de avaliação.
-
-Não utilizar `datetime.now()` para decidir disponibilidade do replay e não permitir backdating arbitrário de `B`.
+`T` continua sendo o timestamp da Analysis; `E` é o corte de avaliação. `B` não vem de `datetime.now()` nem do cursor rebobinado: é a cópia do watermark autoritativo da sessão no compromisso.
 
 ## 5.2 Precommit e hindsight bias
 
 A sequência obrigatória é:
 
 ```text
-policy registrada em B
+exposure watermark corrente = W
+        ↓
+policy registrada em B = W
         ↓
 B <= T
         ↓
@@ -380,14 +563,20 @@ Outcome Evaluation(E)
 É proibido:
 
 ```text
-futuro conhecido
+futuro conhecido até W
         ↓
-escolher novo H ou threshold para Analysis(T)
+reset do replay
+        ↓
+cursor volta para tempo < W
+        ↓
+escolher novo H ou threshold para Analysis(T < W)
         ↓
 Outcome
 ```
 
-Se a sessão não possuía policy elegível para `T`, a Analysis não se torna retroativamente elegível quando uma policy é criada depois.
+O reset não reduz W. Portanto a nova policy, se ainda não existir policy na sessão, captura `B = W` e a Analysis anterior permanece inelegível.
+
+Se a sessão não possuía policy elegível para `T`, a Analysis não se torna retroativamente elegível por reset ou por criação posterior de policy.
 
 ## 5.3 Candle de referência
 
@@ -481,6 +670,8 @@ nenhum Outcome para aquela Analysis
 nenhuma associação retroativa
 ```
 
+Esse status continua válido depois de qualquer reset, porque `bound_at` foi capturado da fronteira não rebobinável.
+
 ### `UNAVAILABLE_REFERENCE`
 
 Não existe candle Ground Truth fechado válido em ou antes de `T`.
@@ -504,7 +695,7 @@ Análises sem Outcome por ausência/policy tardia, indisponibilidade de referên
 
 Devem falhar explicitamente, sem persistência:
 
-- `B`, `T` ou `E` naive;
+- `B`, `T`, `E`, origem ou watermark naive;
 - `E < T`;
 - Ground Truth com timestamps naive;
 - janela fora da sessão da Analysis;
@@ -512,7 +703,9 @@ Devem falhar explicitamente, sem persistência:
 - dados Ground Truth estruturalmente inconsistentes;
 - policy de outra sessão;
 - tentativa de usar policy tardia para aquela Analysis;
-- tentativa de fornecer configuração ad hoc na avaliação.
+- tentativa de fornecer configuração ad hoc na avaliação;
+- tentativa de diminuir o exposure watermark;
+- tentativa de usar cursor rebobinado como substituto de watermark para registrar policy.
 
 ---
 
@@ -559,11 +752,32 @@ Regras do provider:
 
 A implementação concreta do provider pode adaptar o replay controlado, mas o domínio de Outcome não deve depender diretamente de `ReplaySource`.
 
-## 6.2 Fluxos permitidos e proibidos
+## 6.2 Watermark não é Ground Truth de features
+
+O `session_exposure_watermark` contém somente um timestamp de fronteira já exposta.
+
+Ele não fornece:
+
+- OHLC;
+- direção;
+- preço;
+- retorno;
+- tendência;
+- lateralização;
+- realized state;
+- qualquer feature de mercado.
+
+É proibido fornecê-lo como atalho para inferir mercado ao `AnalysisEngine`, `AnalysisLabService`, FeatureEngine ou pipeline visual.
+
+Seu único papel nesta fase é auditar a fronteira temporal de precommit e impedir backdating por reset.
+
+## 6.3 Fluxos permitidos e proibidos
 
 Permitido:
 
 ```text
+Session exposure watermark
+        ↓
 OutcomeEvaluationPolicy
         ↓
 Analysis persistida
@@ -603,32 +817,42 @@ Ground Truth conhecido
 escolher Policy/OutcomeConfig retroativamente
 ```
 
+```text
+reset
+    ↓
+cursor rebobinado
+    ↓
+backdate policy.bound_at
+```
+
 ---
 
-# 7. Fronteira contra future leakage
+# 7. Fronteira contra future leakage e hindsight bias
 
 A distinção normativa é:
 
 ```text
-POLICY EM B
+SESSION EXPOSURE WATERMARK W
+monotônico
+não rebobina com reset
+        ↓
+
+POLICY EM B = W
 compromete H e threshold
 B <= T
 imutável
-
         ↓
 
 ANALYSIS EM T
 usa somente informação <= T
 é persistida
 é imutável
-
         ↓ tempo
 
 OUTCOME EVALUATION EM E
 pode observar somente o Ground Truth necessário
 com close_time <= E
 usa a policy já comprometida
-
         ↓
 
 OutcomeEvaluator
@@ -636,15 +860,21 @@ adiciona Outcome
 nunca reescreve Analysis
 ```
 
-Adicionar novos candles futuros, completar o horizonte ou avançar o replay pode alterar `PENDING_HORIZON` para `AVAILABLE` e permitir a criação de Outcome.
+Adicionar novos candles futuros, completar o horizonte ou avançar o replay pode:
+
+- aumentar o exposure watermark da sessão;
+- alterar `PENDING_HORIZON` para `AVAILABLE` para uma policy/Analysis já elegíveis;
+- permitir a criação de Outcome quando o horizonte estiver disponível.
 
 Isso **não pode** alterar:
 
 - `Analysis(T)`;
 - a policy;
+- `policy.bound_at`;
 - horizonte;
 - threshold;
-- confidence histórica.
+- confidence histórica;
+- o watermark para um valor inferior depois de reset.
 
 Um teste de regressão da FASE 6 deve continuar comprovando que adicionar futuro não altera `Analysis(T)`.
 
@@ -804,6 +1034,8 @@ N = quantidade total de pares avaliados do mesmo policy_id
 ```
 
 Análises sem Outcome não entram em `N`.
+
+A introdução do exposure watermark **não altera** a fronteira de cohort. `BLOCKER-14` permanece resolvido pelo requisito de um único `policy_id` por relatório.
 
 ---
 
@@ -1023,7 +1255,39 @@ weighted_alignment_gap = None
 
 ---
 
-# 18. Persistência conceitual da Policy
+# 18. Persistência conceitual da fronteira de exposição
+
+A informação necessária para impedir backdating por reset pertence ao estado auditável da **sessão/experimento**, não ao cursor efêmero do ReplaySource.
+
+A implementação futura deve representar semanticamente, em `sessions` ou registro equivalente:
+
+```text
+session_id
+session_origin_time
+session_exposure_watermark
+```
+
+Invariantes de persistência:
+
+- `session_origin_time` é imutável e timezone-aware;
+- `session_exposure_watermark` é timezone-aware;
+- `session_exposure_watermark >= session_origin_time`;
+- atualizações são monotônicas: somente `max(W_old, exposed_at)` é permitido;
+- não existe operação de redução de watermark;
+- reset do replay não altera watermark;
+- pause/resume não altera watermark para baixo;
+- reexecução abaixo do máximo anterior não altera watermark;
+- nova exposição acima do máximo anterior aumenta watermark;
+- o estado sobrevive a reinvocação de serviço e, quando a persistência da FASE 7 for implementada, a restart de processo;
+- sessões diferentes possuem watermark independente.
+
+A persistência deve permitir auditar que a policy capturou a fronteira vigente no compromisso. O registro da policy deve usar a versão autoritativa/durável do watermark, não uma cópia stale do cursor em memória.
+
+Esta missão de governança **não cria migration, coluna ou tabela**.
+
+---
+
+# 19. Persistência conceitual da Policy
 
 A FASE 7 implementará posteriormente uma entidade/tabela conceitual:
 
@@ -1053,7 +1317,7 @@ Constraints conceituais mínimas:
 - `bound_at` timezone-aware na borda de domínio;
 - valores Decimal persistidos como numéricos exatos, não `float`.
 
-`bound_at` deve ser capturado do relógio lógico autoritativo no registro; não pode ser backdated pelo chamador.
+`bound_at` deve ser capturado da fronteira de exposição autoritativa e não rebobinável da sessão no registro. É proibido usar `_current_time`/cursor rebobinado como prova exclusiva de precommit.
 
 Imutabilidade:
 
@@ -1064,7 +1328,7 @@ Imutabilidade:
 
 ---
 
-# 19. Persistência conceitual de Outcome
+# 20. Persistência conceitual de Outcome
 
 A FASE 7 implementará posteriormente:
 
@@ -1124,7 +1388,7 @@ Métricas agregadas continuam derivadas; não há tabela persistente de métrica
 
 ---
 
-# 20. Identidade, idempotência e reavaliação
+# 21. Identidade, idempotência e reavaliação
 
 Policy:
 
@@ -1163,9 +1427,11 @@ Depois de persistido:
 
 Múltiplos horizons/policies simultâneos por Analysis são `FUTURE`.
 
+Reset não altera identidade de policy/Outcome e não abre uma janela para nova policy na mesma sessão.
+
 ---
 
-# 21. `OutcomeEvaluator`
+# 22. `OutcomeEvaluator`
 
 `OutcomeEvaluator` é domínio puro.
 
@@ -1195,7 +1461,7 @@ mesmo Outcome
 
 ---
 
-# 22. Orquestração
+# 23. Orquestração
 
 A camada conceitual é:
 
@@ -1234,7 +1500,7 @@ O serviço pode depender de `StorageProvider` e `GroundTruthProvider`. `OutcomeE
 
 ### Registro da policy
 
-A futura operação de registro é separada da avaliação e deve ocorrer antes da Analysis elegível:
+A futura operação de registro é separada da avaliação:
 
 ```text
 register_outcome_evaluation_policy(
@@ -1244,15 +1510,38 @@ register_outcome_evaluation_policy(
 )
 ```
 
-No registro, `bound_at` é capturado pelo relógio lógico autoritativo da sessão. O chamador não fornece um timestamp passado arbitrário.
+No registro:
+
+1. carregar o estado auditável da sessão;
+2. obter `session_exposure_watermark` autoritativo e durável;
+3. capturar `bound_at = session_exposure_watermark`;
+4. nunca aceitar `bound_at` fornecido pelo chamador;
+5. nunca substituir watermark pelo `replay_cursor_time` corrente;
+6. persistir policy imutável sob ordenação consistente com exposições da mesma sessão.
+
+### Registro/avanço da exposição
+
+A implementação futura precisa possuir uma operação semanticamente equivalente a:
+
+```text
+record_session_exposure(session_id, exposed_at)
+→ W_new = max(W_old, exposed_at)
+```
+
+Não existe operação semântica `rewind_session_exposure_watermark`.
+
+O reset da FASE 1 continua sendo apenas reset operacional do replay cursor.
 
 ---
 
-# 23. Extensões futuras mínimas de `StorageProvider`
+# 24. Extensões futuras mínimas de `StorageProvider`
 
-Quando a implementação da FASE 7 for autorizada, o contrato poderá ser estendido somente com o mínimo necessário:
+Quando a implementação da FASE 7 for autorizada, o contrato poderá ser estendido somente com o mínimo necessário para preservar a semântica:
 
 ```text
+get_session_exposure_state(session_id)
+record_session_exposure(session_id, exposed_at)
+
 save_outcome_evaluation_policy(policy) -> None
 get_outcome_evaluation_policy(policy_id) -> OutcomeEvaluationPolicy | None
 get_outcome_evaluation_policy_for_session(session_id) -> OutcomeEvaluationPolicy | None
@@ -1261,6 +1550,8 @@ save_outcome(outcome) -> None
 get_outcome(analysis_id) -> Outcome | None
 list_outcomes(policy_id) -> tuple[Outcome, ...]
 ```
+
+O nome concreto do contrato de exposição pode variar no incremento autorizado, mas deve preservar origem determinística, watermark monotônico e durabilidade suficiente para impedir backdating após reset/restart.
 
 Erros conceituais:
 
@@ -1275,11 +1566,11 @@ Mesmo assim, a camada de métricas deve validar que todo Outcome retornado possu
 
 Uma implementação futura que mantenha `list_outcomes()` sem filtro só seria aceitável se agrupar/validar estritamente por `policy_id` antes de qualquer agregação; mistura silenciosa é proibida.
 
-Ground Truth **não** deve ser incorporado ao `StorageProvider`.
+Ground Truth **não** deve ser incorporado ao `StorageProvider`. O exposure watermark é metadado temporal de auditoria da sessão, não OHLC/Ground Truth de avaliação.
 
 ---
 
-# 24. Contrato das métricas
+# 25. Contrato das métricas
 
 A camada de métricas deve ser pura e receber:
 
@@ -1311,9 +1602,11 @@ confidence_calibration
 
 Entrada com policies incompatíveis deve falhar com erro explícito antes de produzir resultados parciais.
 
+O exposure watermark não participa das fórmulas métricas; ele apenas garante que o target do cohort foi comprometido sob uma fronteira temporal auditável.
+
 ---
 
-# 25. Critérios de aceite da FASE 7
+# 26. Critérios de aceite da FASE 7
 
 A FASE 7 somente poderá ser encerrada quando houver evidência automatizada de todos os critérios abaixo.
 
@@ -1352,7 +1645,7 @@ A FASE 7 somente poderá ser encerrada quando houver evidência automatizada de 
 33. nenhuma métrica, Outcome ou avaliação altera retrospectivamente `Analysis.confidence` ou outro campo da Analysis;
 34. nenhuma funcionalidade da FASE 8/Dashboard é introduzida;
 35. nenhuma integração financeira, corretora, ML/RL, novos indicadores ou escopo pós-v1 é introduzido;
-36. a policy/configuração é registrada no relógio lógico autoritativo da sessão antes da Analysis correspondente ser elegível, com `policy.bound_at <= Analysis.timestamp`;
+36. a policy/configuração é registrada sob fronteira temporal autoritativa antes da Analysis correspondente ser elegível, com `policy.bound_at <= Analysis.timestamp`;
 37. policy com `bound_at > Analysis.timestamp` é rejeitada para aquela Analysis e não produz Outcome;
 38. policy persistida é imutável e não admite UPDATE semântico;
 39. mesma `policy_id` + mesmos dados completos é idempotente;
@@ -1362,15 +1655,32 @@ A FASE 7 somente poderá ser encerrada quando houver evidência automatizada de 
 43. métricas de um único cohort homogêneo funcionam normalmente e expõem a policy/configuração do report;
 44. mistura de Outcomes de policies diferentes falha explicitamente antes de qualquer agregação;
 45. confidence calibration e `weighted_alignment_gap` nunca misturam policies/configurações;
-46. tentativa de escolher novo threshold ou horizonte depois do resultado não pode redefinir target, tornar Analysis antiga elegível, sobrescrever policy nem sobrescrever Outcome.
+46. tentativa de escolher novo threshold ou horizonte depois do resultado não pode redefinir target, tornar Analysis antiga elegível, sobrescrever policy nem sobrescrever Outcome;
+47. `replay_cursor_time` é tratado como cursor rebobinável e não como prova exclusiva de precommit;
+48. uma sessão sem exposição anterior possui `session_origin_time` determinístico/timezone-aware como baseline inicial do exposure watermark;
+49. `session_exposure_watermark` é monotonicamente não decrescente durante toda a vida da sessão;
+50. avanço que ultrapassa a maior exposição anterior aumenta o watermark para a nova fronteira;
+51. `reset` pode rebobinar cursor/posição, mas não reduz nem reinicializa o watermark;
+52. `pause` e `resume` não reduzem o watermark;
+53. reexecução após reset até um instante inferior ao máximo anterior mantém o watermark anterior;
+54. reexecução posterior acima do máximo anterior eleva o watermark ao novo máximo;
+55. policy registrada depois de reset captura `bound_at` a partir do watermark preservado, nunca do cursor rebobinado;
+56. uma Analysis com `T < session_exposure_watermark` no compromisso permanece inelegível mesmo após reset;
+57. a inclusividade é exata: `T == policy.bound_at` pode ser elegível, enquanto `T < policy.bound_at` é rejeitado, sujeitos aos demais contratos;
+58. reset não permite escolher retrospectivamente novo threshold/horizon para Analysis cujo futuro já estava coberto pela exposição anterior;
+59. nova sessão/experimento possui origem/watermark próprios e independentes; reset da mesma sessão não equivale a nova sessão;
+60. estado necessário do exposure watermark realiza round-trip/auditoria sem regressão e sobrevive conceitualmente a reinvocação/restart quando a persistência da FASE 7 existir;
+61. policy continua imutável e única por sessão através de reset e múltiplos ciclos de replay;
+62. Outcome continua vinculado à mesma policy e configuração independentemente de reset posterior;
+63. cohorts métricos por `policy_id`, inclusive confidence calibration, permanecem homogêneos e não são alterados pelo mecanismo de watermark.
 
 Cada critério deve possuir teste automatizado ou evidência automatizada equivalente no fechamento formal.
 
 ---
 
-# 26. Test plan obrigatório
+# 27. Test plan obrigatório
 
-## 26.1 Unidade — `OutcomeConfig`
+## 27.1 Unidade — `OutcomeConfig`
 
 Cobrir:
 
@@ -1383,12 +1693,12 @@ threshold negativo
 threshold NaN/infinito
 ```
 
-## 26.2 Policy/config precommit
+## 27.2 Policy/config precommit
 
 Planejar testes para:
 
-- policy válida registrada antes da Analysis;
-- `bound_at` capturado pelo relógio lógico da sessão, não backdatável pelo chamador;
+- policy válida registrada sob frontier elegível;
+- `bound_at` capturado pelo exposure watermark da sessão, não backdatável pelo chamador;
 - policy tardia rejeitada para Analysis anterior;
 - ausência de policy → `UNAVAILABLE_POLICY`;
 - policy imutável;
@@ -1397,10 +1707,60 @@ Planejar testes para:
 - conflito por segunda policy diferente na mesma sessão;
 - vínculo correto `Session → Policy → Analysis`;
 - `policy.bound_at <= Analysis.timestamp`;
+- igualdade `policy.bound_at == Analysis.timestamp` explicitamente aceita quando os demais contratos passam;
 - tentativa de trocar threshold depois do futuro conhecido não altera target;
 - tentativa de trocar horizonte depois do futuro conhecido não altera target.
 
-## 26.3 Unidade — `OutcomeEvaluator`
+## 27.3 Replay cursor / exposure watermark / reset
+
+Cenário crítico obrigatório:
+
+```text
+start session
+advance até W
+observar mercado até W
+reset
+registrar policy
+carregar/tentar avaliar Analysis em T < W
+→ POLICY_BOUND_TOO_LATE / REJEITAR
+→ nenhum Outcome
+```
+
+Cobrir também:
+
+```text
+advance até W
+reset
+advance até X onde X < W
+→ watermark continua W
+```
+
+```text
+advance até W
+reset
+advance até Y onde Y > W
+→ watermark passa a Y
+```
+
+Mais testes:
+
+- policy antes de qualquer exposição usa origem determinística da sessão;
+- policy depois de exposição captura o máximo já exposto;
+- cursor pode voltar ao estado inicial sem reduzir watermark;
+- reset repetido não reduz watermark;
+- pause/resume não reduz watermark;
+- stop/restart operacional da reprodução na mesma sessão não reduz watermark;
+- reexecução abaixo do máximo anterior não reduz watermark;
+- nova máxima exposição atualiza watermark;
+- `T == bound_at` respeita inclusividade;
+- `T < bound_at` permanece inelegível após reset;
+- nova sessão possui watermark independente;
+- persistência/round-trip do estado de exposição preserva monotonicidade;
+- reinvocação do serviço carrega o watermark durável, não cursor stale;
+- tentativa explícita de diminuir watermark falha;
+- ordem consistente entre exposição e registro da policy impede captura de watermark anterior a exposição já ocorrida.
+
+## 27.4 Unidade — `OutcomeEvaluator`
 
 Cobrir:
 
@@ -1418,7 +1778,7 @@ mesma entrada + mesma policy → mesmo Outcome
 policy_id/evidence determinísticos
 ```
 
-## 26.4 Orquestração/horizonte
+## 27.5 Orquestração/horizonte
 
 Com providers fakes/determinísticos:
 
@@ -1434,9 +1794,10 @@ Com providers fakes/determinísticos:
 - `UNAVAILABLE_END_OF_DATASET`;
 - não sintetizar gaps;
 - não retornar candle além de `evaluation_as_of`;
-- Outcome reproduz `policy_id`, horizon e threshold da policy.
+- Outcome reproduz `policy_id`, horizon e threshold da policy;
+- policy registration usa exposure watermark persistido, não `ReplaySource.current_time` rebobinável.
 
-## 26.5 Arquitetura / Ground Truth
+## 27.6 Arquitetura / Ground Truth
 
 Teste arquitetural deve provar que:
 
@@ -1444,9 +1805,11 @@ Teste arquitetural deve provar que:
 - `AnalysisLabService` não consulta Ground Truth;
 - pipeline visual continua isolado de Ground Truth;
 - Outcome Evaluation acessa Ground Truth apenas pelo contrato autorizado;
-- policy não fornece OHLC/Ground Truth ao módulo de Analysis.
+- policy não fornece OHLC/Ground Truth ao módulo de Analysis;
+- exposure watermark não é fonte de OHLC/features;
+- reset do ReplaySource não é interpretado como reset do histórico experimental de exposição.
 
-## 26.6 Regressão anti-future-leakage
+## 27.7 Regressão anti-future-leakage
 
 Reexecutar FASE 6 para comprovar que future candle, future snapshot e evolução futura de candle conhecido não alteram `Analysis(T)`.
 
@@ -1462,7 +1825,18 @@ Policy pré-comprometida
 
 sem modificar Analysis ou policy.
 
-## 26.7 Métricas / cohort
+Adicionar regressão de hindsight bias:
+
+```text
+futuro exposto até W
+→ reset
+→ tentativa de policy para Analysis T < W
+→ rejeitada
+```
+
+sem modificar Analysis histórica.
+
+## 27.8 Métricas / cohort
 
 Cobrir:
 
@@ -1478,9 +1852,10 @@ Cobrir:
 - denominadores zero;
 - `N == 0`;
 - soma da matriz = N;
-- `coverage + uncertain_frequency == 1` quando `N > 0`.
+- `coverage + uncertain_frequency == 1` quando `N > 0`;
+- reset/watermark não altera `policy_id` nem permite mistura de cohort.
 
-## 26.8 Confidence calibration
+## 27.9 Confidence calibration
 
 Cobrir:
 
@@ -1494,16 +1869,23 @@ Cobrir:
 - absolute gap;
 - weighted alignment gap;
 - bins vazios;
-- `Nc == 0`.
+- `Nc == 0`;
+- reset/watermark não muda a policy do relatório.
 
-## 26.9 Persistência PostgreSQL futura
+## 27.10 Persistência PostgreSQL futura
 
 Quando autorizada:
 
 - migration cria somente estruturas necessárias da FASE 7;
+- origem temporal da sessão/exposure state preservada;
+- watermark monotônico persistido;
+- tentativa de persistir watermark menor é rejeitada/ignorada de forma determinística sem regressão;
+- reset não reduz watermark persistido;
+- round-trip/restart preserva watermark;
+- isolamento de watermark entre sessões;
 - round-trip de policy;
 - unique policy por session no MVP;
-- `bound_at` preservado;
+- `bound_at` preservado e igual à fronteira autoritativa capturada no registro;
 - Decimal preservado;
 - policy idempotente/conflito/imutável;
 - round-trip Outcome com `policy_id`;
@@ -1514,36 +1896,51 @@ Quando autorizada:
 - `list_outcomes(policy_id)` não mistura cohorts;
 - migration upgrade/downgrade/re-upgrade.
 
-## 26.10 Regressão completa
+## 27.11 Regressão completa
 
-Executar novamente os testes relevantes das FASES 1–6, especialmente Replay gate temporal, isolamento de Ground Truth, Temporal Memory, point-in-time, FeatureEngine, AnalysisEngine, AnalysisLabService, persistência imutável de Analysis, CI completo, frontend build e Docker Compose.
+Executar novamente os testes relevantes das FASES 1–6, especialmente:
+
+- Replay gate temporal;
+- Start/Pause/Resume/Reset e determinismo da FASE 1;
+- isolamento de Ground Truth;
+- Temporal Memory;
+- point-in-time;
+- FeatureEngine;
+- AnalysisEngine;
+- AnalysisLabService;
+- persistência imutável de Analysis;
+- regressões anti-future-leakage da FASE 6;
+- cohorts/metrics da FASE 7 já especificados;
+- CI completo, frontend build e Docker Compose.
+
+A FASE 1 deve continuar comprovando sua semântica funcional de reset. O novo teste de watermark pertence à implementação futura da FASE 7 e não redefine retroativamente `ReplaySource.reset()`.
 
 ---
 
-# 27. Resolução dos blockers de especificação
+# 28. Resolução dos blockers de especificação
 
 | Blocker | Resolução canônica |
 |---|---|
-| BLOCKER-01 — Outcome indefinido | Seções 3, 19 e 20. |
+| BLOCKER-01 — Outcome indefinido | Seções 3 e 20–21. |
 | BLOCKER-02 — horizonte indefinido | Seção 5. |
 | BLOCKER-03 — conversão futura para classe | Seção 8. |
 | BLOCKER-04 — Ground Truth contract | Seção 6. |
-| BLOCKER-05 — fronteira temporal | Seções 5 e 7. |
+| BLOCKER-05 — fronteira temporal | Seções 3.3, 5 e 7. |
 | BLOCKER-06 — UNCERTAIN nas métricas | Seções 9 e 15. |
 | BLOCKER-07 — fórmulas das métricas | Seções 11–16. |
 | BLOCKER-08 — confidence calibration | Seção 17. |
-| BLOCKER-09 — persistência | Seções 18 e 19. |
-| BLOCKER-10 — identidade/idempotência | Seção 20. |
-| BLOCKER-11 — orquestração/storage | Seções 22–24. |
-| BLOCKER-12 — aceite/testes | Seções 25 e 26. |
-| BLOCKER-13 — configuração escolhível após futuro | Seções 3.3, 4, 5.2, 18, 22, critérios 36–42 e 46. |
-| BLOCKER-14 — cohorts métricos heterogêneos | Seções 10, 17.2, 23, 24 e critérios 43–45. |
+| BLOCKER-09 — persistência | Seções 18–20. |
+| BLOCKER-10 — identidade/idempotência | Seção 21. |
+| BLOCKER-11 — orquestração/storage | Seções 23–25. |
+| BLOCKER-12 — aceite/testes | Seções 26 e 27. |
+| BLOCKER-13 — configuração escolhível após futuro / binding rebobinável | **REABERTO pelo P1 do PR #11 e corrigido** pelas Seções 3.3–3.4, 5.2, 7, 18–19, 23–24, critérios 36–42 e 47–62, e testes 27.2–27.7/27.10. `bound_at` usa exposure watermark não rebobinável; reset não permite backdating. |
+| BLOCKER-14 — cohorts métricos heterogêneos | Permanece resolvido pelas Seções 10, 17.2, 24–25 e critérios 43–45/63. O mecanismo de watermark não altera a regra de um único `policy_id` por cohort. |
 
 Os blockers são considerados resolvidos documentalmente somente após integração desta especificação ao `main` com CI verde. Isso não equivale a `PHASE_START = READY`; o Phase Start deve ser reexecutado somente quando a governança autorizar essa próxima ação.
 
 ---
 
-# 28. Fora do escopo da FASE 7
+# 29. Fora do escopo da FASE 7
 
 Não implementar nesta fase:
 
@@ -1571,22 +1968,24 @@ Não implementar nesta fase:
 
 ---
 
-# 29. Sequência permitida após novo PHASE START
+# 30. Sequência permitida após novo PHASE START
 
 Somente depois de `chartvision-phase-start = READY`, a implementação poderá ser dividida em incrementos pequenos.
 
-A primeira missão técnica deve permanecer limitada aos contratos puros de domínio necessários ao Outcome Evaluation e à policy já especificada, sem antecipar persistence, API, frontend ou Dashboard salvo autorização específica do Phase Brief.
+A primeira missão técnica deve permanecer limitada aos contratos puros de domínio necessários ao Outcome Evaluation, à policy e à fronteira temporal de exposição já especificadas, sem antecipar persistence, API, frontend ou Dashboard salvo autorização específica do Phase Brief.
 
 Este documento não cria essa autorização por si só.
 
 ---
 
-# 30. Definition of Done específica
+# 31. Definition of Done específica
 
 A FASE 7 exigirá, no fechamento:
 
 ```text
-policy precommit comprovado
+policy precommit com exposure watermark não rebobinável comprovado
++
+reset sem backdating comprovado
 +
 contrato implementado
 +
@@ -1631,20 +2030,32 @@ Somente então a FASE 8 poderá ser autorizada.
 
 ---
 
-# 31. Resumo normativo
+# 32. Resumo normativo
 
 ```text
 SESSION / EXPERIMENTO
-        ↓
+        │
+        ├── REPLAY CURSOR
+        │   operacional
+        │   rebobinável por reset
+        │
+        └── EXPOSURE WATERMARK W
+            baseline = session_origin_time
+            monotônico
+            nunca reduz com reset
+            persiste/audita máximo já exposto
+                    ↓
 POLICY PRECOMMIT
 policy_id
 H >= 1
 threshold Decimal >= 0
-bound_at = relógio lógico autoritativo da sessão
+bound_at = W no registro
 imutável
 uma policy por sessão no MVP
         ↓
 policy.bound_at <= Analysis.timestamp
+T == B permitido
+T < B rejeitado
         ↓
 ANALYSIS(T)
 usa somente informação <= T
