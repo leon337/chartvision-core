@@ -136,14 +136,14 @@ class FeatureEngine:
 
         window_high = max(candle.high for candle in window)
         window_low = min(candle.low for candle in window)
-        window_range = window_high - window_low
-        reference_price = abs(window[0].close)
-        if reference_price == Decimal("0"):
-            return None
 
         with localcontext() as context:
             context.prec = 28
             context.rounding = ROUND_HALF_EVEN
+            window_range = window_high - window_low
+            reference_price = abs(window[0].close)
+            if reference_price == Decimal("0"):
+                return None
             range_ratio = window_range / reference_price
 
         return (
