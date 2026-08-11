@@ -226,3 +226,32 @@ O cursor operacional do replay e a memória experimental de exposição são con
 **Impactos:** a implementação futura da FASE 7 deve manter estado auditável de exposição por sessão, capturar `bound_at` dessa fronteira e testar explicitamente reset/replay repetido. Não é criada migration, coluna, tabela ou alteração em `ReplaySource` por esta decisão documental.
 
 **Contrato detalhado:** `docs/outcome_evaluation.md` e `docs/replay_system.md`.
+
+---
+
+## D-021 — Sessões sem provenance de exposição são inelegíveis para Outcome Evaluation
+**Status:** aprovado
+
+Esta decisão **complementa D-020** sem reescrevê-la. D-020 continua definindo a separação entre cursor rebobinável e watermark monotônico; D-021 define quando existe evidência suficiente para considerar esse watermark historicamente confiável.
+
+A FASE 7 adota fail-closed para provenance de exposição:
+
+- ausência de histórico de exposição **não** significa ausência de exposição;
+- a sessão possui estado conceitual `ExposureTrackingState` com, no mínimo, `TRACKED` e `LEGACY_UNKNOWN`;
+- `TRACKED` exige que exposure tracking tenha estado ativo desde a origem experimental relevante, com `session_origin_time` e `session_exposure_watermark` confiáveis;
+- somente sessão `TRACKED` pode registrar `OutcomeEvaluationPolicy`;
+- sessão preexistente sem prova integral de tracking desde a origem é `LEGACY_UNKNOWN`;
+- `LEGACY_UNKNOWN` não registra policy, não produz Outcome e não participa de métricas ou confidence calibration da FASE 7;
+- Analysis histórica em sessão `LEGACY_UNKNOWN` permanece válida e imutável, mas é inelegível para Outcome;
+- a futura migration não pode marcar automaticamente sessões preexistentes como `TRACKED` nem inicializar o watermark em `session_origin_time` sem evidência histórica suficiente;
+- posição corrente, frames, observations, candles, Analysis, timestamps máximos, logs parciais ou Ground Truth não podem ser usados como heurística para inventar provenance;
+- `reset` não promove `LEGACY_UNKNOWN` para `TRACKED` e não cria nova sessão;
+- não existe promoção automática de sessão legada no MVP;
+- quando Outcome Evaluation auditável for necessária para uma sessão legada, o caminho canônico é criar **nova sessão/experimento explícita** sob exposure tracking já ativo;
+- qualquer mecanismo futuro de certificação/promote de sessão legada é `FUTURE` e exige nova decisão explícita.
+
+**Motivo:** as sessões/persistência existentes antes da FASE 7 não registram exposure history. Inicializar retroativamente `watermark = session_origin_time` produziria afirmação histórica não comprovada e reabriria hindsight bias mesmo com D-020.
+
+**Impactos:** a futura persistência da FASE 7 deve distinguir `TRACKED` de `LEGACY_UNKNOWN`, aplicar gate de provenance antes do registro da policy e preservar o cohort homogêneo de D-019. Nenhum código, migration, coluna ou tabela é criado por esta decisão documental.
+
+**Contrato detalhado:** `docs/outcome_evaluation.md`, `docs/architecture.md`, `docs/evaluation_metrics.md` e `docs/replay_system.md`.
