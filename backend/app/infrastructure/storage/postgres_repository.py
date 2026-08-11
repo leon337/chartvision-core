@@ -2,22 +2,26 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timezone
+from math import isfinite
 
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session as OrmSession
 
 from app.domain.interfaces.storage_provider import (
+    AnalysisConflictError,
     CandleConflictError,
     FrameConflictError,
     ObservationConflictError,
     SessionConflictError,
 )
+from app.domain.models.analysis import Analysis, MarketState
 from app.domain.models.candle import Candle
 from app.domain.models.frame import Frame
 from app.domain.models.observation import Observation
 from app.domain.models.session import Session
 from app.infrastructure.db.models import (
+    AnalysisRecord,
     CandleRecord,
     CandleSnapshotRecord,
     FrameRecord,
@@ -30,7 +34,7 @@ SessionFactory = Callable[[], OrmSession]
 
 
 class PostgresStorageRepository:
-    """PostgreSQL implementation of the Phase 4 StorageProvider contract."""
+    """PostgreSQL implementation of the StorageProvider contract."""
 
     def __init__(self, session_factory: SessionFactory = SessionLocal) -> None:
         self._session_factory = session_factory
@@ -297,6 +301,43 @@ class PostgresStorageRepository:
         finally:
             db.close()
 
+    def save_analysis(self, analysis: Analysis) -> None:
+        normalized = self._normalize_analysis(analysis)
+        db = self._session_factory()
+        try:
+            with db.begin():
+                existing = db.get(AnalysisRecord, normalized.analysis_id)
+                if existing is not None:
+                    persisted = self._analysis_to_domain(existing)
+                    if persisted == normalized:
+                        return
+                    raise AnalysisConflictError(
+                        f"analysis_id {normalized.analysis_id!r} already exists with different data"
+                    )
+
+                if db.get(SessionRecord, normalized.session_id) is None:
+                    raise ValueError(
+                        f"session_id {normalized.session_id!r} does not exist"
+                    )
+
+                db.add(self._analysis_to_record(normalized))
+                db.flush()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+    def get_analysis(self, analysis_id: str) -> Analysis | None:
+        db = self._session_factory()
+        try:
+            record = db.get(AnalysisRecord, analysis_id)
+            if record is None:
+                return None
+            return self._analysis_to_domain(record)
+        finally:
+            db.close()
+
     @classmethod
     def _snapshot_at_timestamp(
         cls,
@@ -457,6 +498,43 @@ class PostgresStorageRepository:
             source_confidence=candle.source_confidence,
         )
 
+    @classmethod
+    def _normalize_analysis(cls, analysis: Analysis) -> Analysis:
+        if not isinstance(analysis.analysis_id, str) or not analysis.analysis_id.strip():
+            raise ValueError("analysis_id must be a non-empty string")
+        if not isinstance(analysis.session_id, str) or not analysis.session_id.strip():
+            raise ValueError("session_id must be a non-empty string")
+        if not isinstance(analysis.market_state, MarketState):
+            raise ValueError("market_state must be a MarketState")
+        cls._validate_unit_interval(analysis.confidence, "confidence")
+        if analysis.data_quality is not None:
+            cls._validate_unit_interval(analysis.data_quality, "data_quality")
+        if not isinstance(analysis.evidence, tuple) or any(
+            not isinstance(token, str) for token in analysis.evidence
+        ):
+            raise ValueError("evidence must be a tuple of strings")
+
+        return Analysis(
+            analysis_id=analysis.analysis_id,
+            session_id=analysis.session_id,
+            timestamp=cls._normalize_datetime(analysis.timestamp, "timestamp"),
+            market_state=analysis.market_state,
+            confidence=float(analysis.confidence),
+            data_quality=(
+                float(analysis.data_quality)
+                if analysis.data_quality is not None
+                else None
+            ),
+            evidence=analysis.evidence,
+        )
+
+    @staticmethod
+    def _validate_unit_interval(value: float, field_name: str) -> None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"{field_name} must be a finite number between 0.0 and 1.0")
+        if not isfinite(value) or not 0.0 <= value <= 1.0:
+            raise ValueError(f"{field_name} must be between 0.0 and 1.0")
+
     @staticmethod
     def _normalize_datetime(value: datetime, field_name: str) -> datetime:
         if value.tzinfo is None or value.utcoffset() is None:
@@ -535,6 +613,18 @@ class PostgresStorageRepository:
             source_confidence=candle.source_confidence,
         )
 
+    @staticmethod
+    def _analysis_to_record(analysis: Analysis) -> AnalysisRecord:
+        return AnalysisRecord(
+            analysis_id=analysis.analysis_id,
+            session_id=analysis.session_id,
+            timestamp=analysis.timestamp,
+            market_state=analysis.market_state.value,
+            confidence=analysis.confidence,
+            data_quality=analysis.data_quality,
+            evidence=list(analysis.evidence),
+        )
+
     @classmethod
     def _session_to_domain(cls, record: SessionRecord) -> Session:
         return Session(
@@ -608,4 +698,23 @@ class PostgresStorageRepository:
             is_closed=record.is_closed,
             vision_confidence=record.vision_confidence,
             source_confidence=record.source_confidence,
+        )
+
+    @classmethod
+    def _analysis_to_domain(cls, record: AnalysisRecord) -> Analysis:
+        evidence = record.evidence
+        if not isinstance(evidence, list) or any(
+            not isinstance(token, str) for token in evidence
+        ):
+            raise ValueError("persisted analysis evidence must be a JSON array of strings")
+        return cls._normalize_analysis(
+            Analysis(
+                analysis_id=record.analysis_id,
+                session_id=record.session_id,
+                timestamp=record.timestamp,
+                market_state=MarketState(record.market_state),
+                confidence=record.confidence,
+                data_quality=record.data_quality,
+                evidence=tuple(evidence),
+            )
         )

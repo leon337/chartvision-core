@@ -1,8 +1,9 @@
 from datetime import datetime
+from decimal import Decimal
 from math import isfinite
 
 from app.domain.interfaces.storage_provider import StorageProvider
-from app.domain.models.analysis import AnalysisConfig, AnalysisDecision, MarketState
+from app.domain.models.analysis import Analysis, AnalysisConfig, AnalysisDecision, MarketState
 from app.domain.models.candle import Candle
 from app.domain.services.analysis_engine import AnalysisEngine
 from app.domain.services.feature_engine import FeatureEngine
@@ -56,6 +57,53 @@ class AnalysisLabService:
             data_quality=data_quality,
             minimum_data_quality=config.minimum_data_quality,
         )
+
+    def analyze_and_record(
+        self,
+        analysis_id: str,
+        session_id: str,
+        as_of: datetime,
+        config: AnalysisConfig,
+    ) -> Analysis:
+        decision = self.analyze(session_id, as_of, config)
+        analysis = Analysis(
+            analysis_id=analysis_id,
+            session_id=session_id,
+            timestamp=as_of,
+            market_state=decision.market_state,
+            confidence=decision.confidence,
+            data_quality=decision.data_quality,
+            evidence=self._persisted_evidence(decision, config),
+        )
+        self._storage.save_analysis(analysis)
+        return analysis
+
+    @staticmethod
+    def _persisted_evidence(
+        decision: AnalysisDecision,
+        config: AnalysisConfig,
+    ) -> tuple[str, ...]:
+        classifier_evidence = tuple(
+            token
+            for token in decision.evidence
+            if not token.startswith("MINIMUM_DATA_QUALITY=")
+        )
+        return classifier_evidence + (
+            f"TREND_PAIRS={config.trend_pairs}",
+            f"LATERALIZATION_WINDOW_CANDLES={config.lateralization_window_candles}",
+            "LATERALIZATION_MAX_RANGE_RATIO="
+            f"{AnalysisLabService._format_decimal(config.lateralization_max_range_ratio)}",
+            "MINIMUM_DATA_QUALITY="
+            f"{AnalysisLabService._format_float(config.minimum_data_quality)}",
+        )
+
+    @staticmethod
+    def _format_decimal(value: Decimal) -> str:
+        return format(value.normalize(), "f")
+
+    @staticmethod
+    def _format_float(value: float) -> str:
+        return format(Decimal(str(value)).normalize(), "f")
 
     @staticmethod
     def _validate_as_of(as_of: datetime) -> None:

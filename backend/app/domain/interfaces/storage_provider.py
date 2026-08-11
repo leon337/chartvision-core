@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Protocol
 
+from app.domain.models.analysis import Analysis
 from app.domain.models.candle import Candle
 from app.domain.models.frame import Frame
 from app.domain.models.observation import Observation
@@ -21,6 +22,10 @@ class ObservationConflictError(ValueError):
 
 class CandleConflictError(ValueError):
     """Raised when persisted candle history would be mutated inconsistently."""
+
+
+class AnalysisConflictError(ValueError):
+    """Raised when an existing analysis identity has conflicting persisted data."""
 
 
 class StorageProvider(Protocol):
@@ -45,3 +50,7 @@ class StorageProvider(Protocol):
     def get_candles_for_frame(self, frame_id: str) -> tuple[Candle, ...]: ...
 
     def get_candles_as_of(self, session_id: str, as_of: datetime) -> tuple[Candle, ...]: ...
+
+    def save_analysis(self, analysis: Analysis) -> None: ...
+
+    def get_analysis(self, analysis_id: str) -> Analysis | None: ...
