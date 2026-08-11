@@ -15,10 +15,10 @@
 | 4 | Temporal Memory MVP | ✅ PASS |
 | 5 | Market Features MVP | ✅ PASS |
 | 6 | Analysis Lab MVP | ⬜ PENDING |
-| 7 | Outcome Evaluation MVP | ⬜ PENDING |
-| 8 | Dashboard MVP | ⬜ PENDING |
+| 7 | Outcome Evaluation MVP | 🔒 BLOCKED |
+| 8 | Dashboard MVP | 🔒 BLOCKED |
 
-A FASE 6 é a única próxima fase autorizável. `PENDING` não significa iniciada: sua abertura exige novo chat dedicado e novo `chartvision-phase-start = READY`. As fases 7 e 8 continuam dependentes do PASS sequencial das fases anteriores.
+A FASE 6 é a única próxima fase autorizável. `PENDING` não significa iniciada: sua abertura exige novo chat dedicado e novo `chartvision-phase-start = READY`. As fases 7 e 8 continuam bloqueadas e dependentes do PASS sequencial das fases anteriores.
 
 ## Regra de progressão
 
@@ -308,7 +308,7 @@ Teste automatizado comprova que nenhum candle futuro participa da análise.
 
 ---
 
-## FASE 7 — OUTCOME EVALUATION MVP — ⬜ PENDING
+## FASE 7 — OUTCOME EVALUATION MVP — 🔒 BLOCKED
 
 ### Objetivo
 Comparar análises registradas com o que ocorreu posteriormente no replay.
@@ -330,7 +330,7 @@ Aguarda `PHASE_CLOSE = PASS` da FASE 6.
 
 ---
 
-## FASE 8 — DASHBOARD MVP — ⬜ PENDING
+## FASE 8 — DASHBOARD MVP — 🔒 BLOCKED
 
 ### Objetivo
 Disponibilizar uma interface única para observação e auditoria do laboratório.
