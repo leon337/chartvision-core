@@ -48,6 +48,7 @@ Esse documento é a autoridade para:
 
 - definição de `Outcome`, `OutcomeConfig` e `OutcomeEvaluationPolicy`;
 - precommit temporal da configuração;
+- separação entre replay cursor rebobinável e session exposure watermark monotônico;
 - identidade e imutabilidade da policy;
 - horizonte temporal;
 - Ground Truth boundary;
@@ -64,7 +65,7 @@ Esse documento é a autoridade para:
 
 Uma `Analysis` registrada não pode ser alterada após conhecer o futuro.
 
-A definição do target também não pode ser escolhida retroativamente. Horizonte e threshold devem estar comprometidos em uma `OutcomeEvaluationPolicy` imutável antes da Analysis elegível, conforme a regra temporal canônica em `docs/outcome_evaluation.md`.
+A definição do target também não pode ser escolhida retroativamente. Horizonte e threshold devem estar comprometidos em uma `OutcomeEvaluationPolicy` imutável sob uma fronteira temporal não rebobinável, conforme `docs/outcome_evaluation.md`.
 
 O futuro somente pode ser associado posteriormente pelo Outcome Evaluation, preservando:
 - classificação original;
@@ -73,6 +74,28 @@ O futuro somente pode ser associado posteriormente pelo Outcome Evaluation, pres
 - qualidade de dados original;
 - timestamp original;
 - policy/configuração previamente comprometida.
+
+### Precommit resistente a reset
+
+O cursor operacional do replay pode ser rebobinado por `reset`, portanto não constitui prova suficiente de que o futuro nunca foi visto.
+
+A FASE 7 usa conceitualmente:
+
+```text
+session_exposure_watermark
+```
+
+como a maior fronteira lógica já exposta na sessão. Essa fronteira é monotonicamente não decrescente e não é reduzida por reset, pause/resume ou reexecução abaixo do máximo anterior.
+
+A policy captura:
+
+```text
+policy.bound_at = session_exposure_watermark
+```
+
+no instante do registro. Assim, observar futuro até `W`, resetar o replay e registrar policy não torna uma Analysis com `T < W` elegível.
+
+O exposure watermark contém somente metadado temporal de auditoria. Ele não fornece OHLC, features ou realized state ao módulo de Analysis.
 
 ### Classes
 
@@ -133,6 +156,8 @@ Entrada contendo Outcomes de policies diferentes deve falhar explicitamente ante
 
 Confidence calibration obedece à mesma fronteira: os cinco bins e o `weighted_alignment_gap` são calculados dentro de um único `policy_id`.
 
+A correção de exposure watermark não altera esse contrato. `BLOCKER-14` permanece resolvido.
+
 ## Regra contra future leakage e hindsight bias
 
 Nenhum dado posterior ao timestamp de uma Analysis pode ser usado para produzir aquela Analysis.
@@ -141,12 +166,14 @@ A informação posterior somente entra na camada de Outcome Evaluation após o r
 
 Também é proibido observar o futuro e depois escolher retroativamente `horizon_closed_candles` ou `realized_return_threshold` para modificar o significado do Outcome de uma Analysis histórica.
 
+`reset` do replay não reabre essa possibilidade: o cursor pode voltar, mas a fronteira de exposição experimental não diminui.
+
 ## Interpretação
 
 O objetivo do v1 é medir:
 1. qualidade da percepção;
 2. integridade da memória temporal;
 3. consistência da classificação;
-4. capacidade de verificar resultados sob target experimental previamente comprometido.
+4. capacidade de verificar resultados sob target experimental previamente comprometido e temporalmente auditável.
 
 Rentabilidade financeira não é critério de sucesso do v1.
