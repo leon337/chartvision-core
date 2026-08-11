@@ -300,9 +300,9 @@ def test_basic_lateralization_accepts_zero_threshold_for_zero_range() -> None:
 def test_basic_lateralization_is_independent_from_global_decimal_context() -> None:
     candles = tuple(
         _candle(
-            high=Decimal("5"),
-            low=Decimal("3"),
-            close=Decimal("3"),
+            high=Decimal("5.123456789"),
+            low=Decimal("3.000000001"),
+            close=Decimal("3.5"),
             minute=minute,
         )
         for minute in range(3)
@@ -314,7 +314,7 @@ def test_basic_lateralization_is_independent_from_global_decimal_context() -> No
         result = FeatureEngine.basic_lateralization(
             candles,
             lateralization_window_candles=3,
-            lateralization_max_range_ratio=Decimal("0.66668"),
+            lateralization_max_range_ratio=Decimal("0.6068"),
         )
 
     assert result is True
