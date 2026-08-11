@@ -291,16 +291,20 @@ Progresso técnico já existente:
 - HL — Higher Low;
 - LH — Lower High;
 - LL — Lower Low;
-- tendência estrutural básica.
+- tendência estrutural básica;
+- lateralização estrutural básica.
 
 Pendente dentro da FASE 5:
-- lateralização básica.
+- revisão independente do incremento final;
+- verificação formal de fechamento por `chartvision-phase-close`, somente após nova autorização explícita.
+
+Não há feature funcional pendente no escopo congelado da FASE 5.
 
 Último incremento técnico aprovado:
-- HEAD `fc276939c9c7d6cbb5d6c0b6f67c3b9f3d5104b5`;
-- CI run `#108` / `31461400618` — SUCCESS.
+- HEAD `97e6213d0ed4146228130b536737da75e8573ba8`;
+- CI run `#112` / `31463537930` — SUCCESS.
 
-O fechamento formal continua pendente. FASE 5 não é PASS e FASE 6 não está autorizada enquanto não houver conclusão do escopo, testes/CI/aceite finais e `chartvision-phase-close = PASS`.
+O fechamento formal continua pendente. FASE 5 não é PASS e FASE 6 não está autorizada enquanto não houver revisão final, validações de fechamento e `chartvision-phase-close = PASS`.
 
 ---
 
