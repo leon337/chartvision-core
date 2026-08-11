@@ -157,7 +157,9 @@ se close == open → CLOSE_EQUAL_OPEN
 
 **Unidade:** não aplicável.
 
-**Tipo:** valor categórico conceitual `CandleDirection` com exatamente os três valores acima.
+**Tipo:** valor categórico `MarketCandleDirection` com exatamente os três valores acima.
+
+Na implementação Python da FASE 5, esse tipo é independente de `app.domain.models.vision.CandleDirection`, que permanece restrito à visão/reconstrução com os valores `UP` e `DOWN`.
 
 **Igualdade:** `close == open` resulta em `CLOSE_EQUAL_OPEN`.
 
@@ -694,7 +696,7 @@ Com os mesmos candles e `T=0.009`, `range_ratio > T`, então `lateralizacao = Fa
 
 | Feature | Mínimo | Candle aberto | Resultado |
 |---|---:|---:|---|
-| direção | 1 candle | sim | `CandleDirection | None` |
+| direção | 1 candle | sim | `MarketCandleDirection | None` |
 | amplitude | 1 candle | sim | `Decimal | None` |
 | retorno | alvo + predecessor fechado | alvo sim | `Decimal | None` |
 | volatilidade simples | `N >= 3` fechados | não | `Decimal | None` |
