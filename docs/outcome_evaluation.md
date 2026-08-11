@@ -12,19 +12,29 @@ A existência desta especificação **não inicia implementação**, não marca 
 
 # 1. Objetivo
 
-Avaliar, de forma determinística e auditável, uma `Analysis` já registrada contra o que ocorreu posteriormente no Ground Truth do replay, preservando integralmente o registro histórico original.
+Avaliar, de forma determinística e auditável, uma `Analysis` já registrada contra o que ocorreu posteriormente no Ground Truth do replay, preservando integralmente o registro histórico original e impedindo que a definição do target seja escolhida depois de observar o futuro.
 
 Fluxo canônico:
 
 ```text
+Session / experimento
+        │
+        ▼
+OutcomeEvaluationPolicy
+configuração comprometida e imutável
+        │
+        │ policy.bound_at <= Analysis.timestamp
+        ▼
 Analysis registrada em T
         │
         │ imutável
         ▼
+futuro ocorre
+        │
+        ▼
 OutcomeEvaluationService
         │
-        ├── StorageProvider → Analysis
-        │
+        ├── StorageProvider → Analysis + Policy
         └── GroundTruthProvider → janela futura autorizada
                          │
                          ▼
@@ -37,10 +47,10 @@ OutcomeEvaluationService
                   StorageProvider
                          │
                          ▼
-              métricas derivadas
+          métricas por policy homogênea
 ```
 
-A FASE 7 não reclassifica o passado. Ela somente adiciona uma avaliação posterior vinculada à `Analysis` original.
+A FASE 7 não reclassifica o passado. Ela adiciona uma avaliação posterior vinculada à `Analysis` original e à policy experimental que já estava comprometida antes daquela Analysis poder ser avaliada.
 
 ---
 
@@ -50,12 +60,15 @@ A FASE 7 não reclassifica o passado. Ela somente adiciona uma avaliação poste
 2. A `Analysis` persistida é imutável.
 3. O `AnalysisEngine` continua proibido de acessar Ground Truth, ReplaySource ou informação posterior a `T`.
 4. Somente a camada de Outcome Evaluation pode consultar Ground Truth posterior, e apenas para avaliar uma `Analysis` já registrada.
-5. O resultado realizado possui somente `UP`, `DOWN` ou `SIDEWAYS`.
-6. `UNCERTAIN` pertence exclusivamente ao lado da previsão/`Analysis` e significa abstention.
-7. Nenhum Outcome é criado enquanto o horizonte configurado não estiver integralmente disponível.
-8. O fim do dataset não autoriza encurtar o horizonte.
-9. Dados ausentes não são inventados.
-10. O domínio de avaliação deve permanecer determinístico e independente de infraestrutura.
+5. A definição do target (`horizon_closed_candles` + `realized_return_threshold`) deve estar comprometida em uma `OutcomeEvaluationPolicy` imutável antes da Analysis elegível.
+6. `OutcomeEvaluationService` não aceita configuração arbitrária escolhida no instante de avaliação `E`.
+7. O resultado realizado possui somente `UP`, `DOWN` ou `SIDEWAYS`.
+8. `UNCERTAIN` pertence exclusivamente ao lado da previsão/`Analysis` e significa abstention.
+9. Nenhum Outcome é criado enquanto o horizonte comprometido não estiver integralmente disponível.
+10. O fim do dataset não autoriza encurtar o horizonte.
+11. Dados ausentes não são inventados.
+12. Métricas agregadas somente são válidas dentro de um cohort homogêneo de uma única policy.
+13. O domínio de avaliação deve permanecer determinístico e independente de infraestrutura.
 
 ---
 
@@ -75,7 +88,7 @@ SIDEWAYS
 
 ## 3.2 `OutcomeConfig`
 
-A configuração da avaliação é explícita e não possui defaults silenciosos:
+`OutcomeConfig` é o valor imutável que define o target de avaliação:
 
 ```text
 horizon_closed_candles: int
@@ -86,23 +99,127 @@ Validações normativas:
 
 ```text
 horizon_closed_candles >= 1
-
 realized_return_threshold é Decimal finito
 realized_return_threshold >= 0
 ```
 
 Valores booleanos não satisfazem conceitualmente o contrato de inteiro do horizonte.
 
-Configuração inválida deve falhar explicitamente antes de consultar ou persistir Outcome.
+Não existem defaults silenciosos.
 
-## 3.3 `Outcome`
+**Regra crítica:** `OutcomeConfig` não é uma escolha livre em `OutcomeEvaluationService.evaluate(...)`. No MVP, os seus valores entram na avaliação exclusivamente através da `OutcomeEvaluationPolicy` previamente comprometida da sessão.
 
-`Outcome` representa uma avaliação posterior imutável de exatamente uma `Analysis`.
+## 3.3 `OutcomeEvaluationPolicy`
+
+`OutcomeEvaluationPolicy` representa o precommit auditável da definição de Outcome para uma sessão/experimento.
+
+Campos conceituais mínimos:
+
+```text
+policy_id: str
+session_id: str
+horizon_closed_candles: int
+realized_return_threshold: Decimal
+bound_at: datetime
+```
+
+Semântica:
+
+- `policy_id` identifica inequivocamente a policy;
+- `session_id` determina o experimento ao qual ela pertence;
+- horizonte e threshold formam a configuração imutável comprometida;
+- `bound_at` é o instante lógico autoritativo da sessão no qual a policy foi registrada.
+
+### Regra de captura de `bound_at`
+
+`bound_at` **não pode ser um timestamp retroativo arbitrariamente fornecido pelo chamador**.
+
+A operação futura de registro da policy deve obter `bound_at` do relógio lógico autoritativo da própria sessão/replay no momento do registro e persistir esse valor junto com a policy.
+
+Conceitualmente:
+
+```text
+B = current_session_logical_time
+register_policy(...)
+→ policy.bound_at = B
+```
+
+O chamador não pode fornecer um `B` anterior para simular precommit depois de o replay já ter avançado.
+
+Essa regra não expõe OHLC/Ground Truth ao `AnalysisEngine`; utiliza somente a posição temporal autoritativa da sessão para registrar o compromisso experimental.
+
+### Cardinalidade MVP
+
+Para manter o menor contrato suficiente:
+
+```text
+Session 1 → 0..1 OutcomeEvaluationPolicy
+```
+
+Uma sessão do MVP possui no máximo uma policy de Outcome Evaluation.
+
+Consequências:
+
+- não há ambiguidade sobre qual policy pertence a uma Analysis da sessão;
+- alteração de horizonte/threshold exige nova sessão/experimento no MVP;
+- múltiplas policies ou revisões de policy dentro da mesma sessão são `FUTURE` e exigem nova decisão arquitetural.
+
+### Elegibilidade temporal de uma Analysis
+
+Para uma `Analysis` com:
+
+```text
+Analysis.session_id = S
+Analysis.timestamp = T
+```
+
+ela somente é elegível para Outcome se existir a policy única da sessão `S` e:
+
+```text
+policy.session_id == Analysis.session_id
+policy.bound_at <= Analysis.timestamp
+```
+
+Se:
+
+```text
+policy.bound_at > Analysis.timestamp
+```
+
+essa policy é tardia para aquela Analysis e a avaliação deve ser rejeitada explicitamente.
+
+Uma Analysis que não possuía policy elegível em ou antes de `T` **não pode receber Outcome retroativamente** escolhendo horizonte/threshold depois que o resultado já é conhecido.
+
+### Imutabilidade e idempotência
+
+Policy é append-only no MVP. Não existe UPDATE semântico.
+
+```text
+mesmo policy_id + mesmos dados completos
+→ idempotente
+
+mesmo policy_id + qualquer dado diferente
+→ conflito explícito
+
+mesmo session_id + outra policy diferente
+→ conflito explícito no MVP
+```
+
+Erro conceitual:
+
+```text
+OutcomeEvaluationPolicyConflictError
+```
+
+## 3.4 `Outcome`
+
+`Outcome` representa uma avaliação posterior imutável de exatamente uma `Analysis`, produzida por exatamente uma `OutcomeEvaluationPolicy`.
 
 Campos conceituais mínimos:
 
 ```text
 analysis_id: str
+policy_id: str
 
 evaluation_timestamp: datetime
 
@@ -124,30 +241,36 @@ evidence: tuple[str, ...]
 
 ### Identidade
 
-No MVP, `analysis_id` é simultaneamente:
+No MVP, `analysis_id` permanece simultaneamente:
 
 - identidade lógica do Outcome;
 - chave estrangeira obrigatória para `Analysis`;
 - garantia de cardinalidade máxima `Analysis 1 → 0..1 Outcome`.
 
-Não existe necessidade de um `outcome_id` artificial no MVP.
+`policy_id` não substitui a identidade do Outcome; ele identifica o target experimental que produziu aquele Outcome.
 
 ### Invariantes
 
 1. `analysis_id` deve referenciar uma `Analysis` existente;
-2. todos os timestamps devem ser timezone-aware;
-3. `reference_candle_close_time <= Analysis.timestamp`;
-4. o candle de referência deve ser o último candle Ground Truth fechado válido em ou antes de `Analysis.timestamp`;
-5. `final_candle_close_time > Analysis.timestamp`;
-6. o candle final deve ser exatamente o `horizon_closed_candles`-ésimo candle Ground Truth fechado após a referência;
-7. referência e candle final devem pertencer à mesma sessão/contexto da Analysis;
-8. `reference_close != 0`;
-9. `evaluation_timestamp == final_candle_close_time`;
-10. `realized_return_threshold >= 0`;
-11. `realized_return` deve ser reproduzível a partir de `reference_close` e `final_close` pela fórmula canônica deste documento;
-12. `realized_state` deve corresponder exatamente à regra de classificação realizada;
-13. `evidence` deve ser determinística, ordenada e auditável;
-14. nenhum campo do Outcome pode provocar alteração da `Analysis` vinculada.
+2. `policy_id` deve referenciar uma `OutcomeEvaluationPolicy` existente;
+3. `policy.session_id == Analysis.session_id`;
+4. `policy.bound_at <= Analysis.timestamp`;
+5. `Outcome.horizon_closed_candles == policy.horizon_closed_candles`;
+6. `Outcome.realized_return_threshold == policy.realized_return_threshold`;
+7. todos os timestamps devem ser timezone-aware;
+8. `reference_candle_close_time <= Analysis.timestamp`;
+9. o candle de referência deve ser o último candle Ground Truth fechado válido em ou antes de `Analysis.timestamp`;
+10. `final_candle_close_time > Analysis.timestamp`;
+11. o candle final deve ser exatamente o `horizon_closed_candles`-ésimo candle Ground Truth fechado após a referência;
+12. referência e candle final devem pertencer à mesma sessão/contexto da Analysis;
+13. `reference_close != 0`;
+14. `evaluation_timestamp == final_candle_close_time`;
+15. `realized_return_threshold >= 0`;
+16. `realized_return` deve ser reproduzível a partir de `reference_close` e `final_close` pela fórmula canônica;
+17. `realized_state` deve corresponder exatamente à regra de classificação realizada;
+18. `evidence` deve ser determinística, ordenada e auditável;
+19. nenhum campo do Outcome pode provocar alteração da `Analysis` vinculada;
+20. policy e Outcome não podem divergir silenciosamente em identidade/configuração.
 
 ### Evidence
 
@@ -156,25 +279,56 @@ A evidence deve utilizar tokens determinísticos, sem texto livre variável. Ord
 ```text
 1. OUTCOME_RULE
 2. ANALYSIS_ID
-3. REFERENCE_CANDLE_OPEN_TIME
-4. REFERENCE_CANDLE_CLOSE_TIME
-5. REFERENCE_CLOSE
-6. FINAL_CANDLE_OPEN_TIME
-7. FINAL_CANDLE_CLOSE_TIME
-8. FINAL_CLOSE
-9. HORIZON_CLOSED_CANDLES
-10. REALIZED_RETURN_THRESHOLD
-11. REALIZED_RETURN
-12. REALIZED_STATE
+3. POLICY_ID
+4. REFERENCE_CANDLE_OPEN_TIME
+5. REFERENCE_CANDLE_CLOSE_TIME
+6. REFERENCE_CLOSE
+7. FINAL_CANDLE_OPEN_TIME
+8. FINAL_CANDLE_CLOSE_TIME
+9. FINAL_CLOSE
+10. HORIZON_CLOSED_CANDLES
+11. REALIZED_RETURN_THRESHOLD
+12. REALIZED_RETURN
+13. REALIZED_STATE
 ```
 
 A evidence do Outcome não substitui nem reescreve `Analysis.evidence`.
 
 ---
 
-# 4. Contrato temporal
+# 4. Relação Policy → Analysis → Outcome
 
-## 4.1 Instantes
+Cardinalidade canônica do MVP:
+
+```text
+Session 1
+   ↓
+0..1 OutcomeEvaluationPolicy
+   ↓
+0..N Analysis elegíveis
+   ↓
+0..1 Outcome por Analysis
+```
+
+A policy não é gravada dentro da `Analysis` e não exige alteração retrospectiva do modelo de Analysis.
+
+O vínculo é derivado e auditável por:
+
+```text
+Analysis.session_id == policy.session_id
+AND
+policy.bound_at <= Analysis.timestamp
+```
+
+Como existe no máximo uma policy por sessão no MVP, esse vínculo é unívoco.
+
+O Outcome registra `policy_id` e copia horizonte/threshold para auditoria. Esses valores copiados devem ser exatamente iguais aos da policy.
+
+---
+
+# 5. Contrato temporal
+
+## 5.1 Instantes
 
 Para uma `Analysis` persistida:
 
@@ -190,17 +344,52 @@ evaluation_as_of = E
 
 `E` representa o instante lógico até o qual o módulo de avaliação está autorizado a observar Ground Truth.
 
+Para a policy:
+
+```text
+policy.bound_at = B
+```
+
 Regras:
 
 ```text
-T deve ser timezone-aware
-E deve ser timezone-aware
-E >= T
+B, T e E devem ser timezone-aware
+B <= T <= E
 ```
 
-Não utilizar `datetime.now()` para decidir disponibilidade.
+`B` é capturado pelo relógio lógico autoritativo da sessão no registro da policy; `T` continua sendo o timestamp da Analysis; `E` é o corte de avaliação.
 
-## 4.2 Candle de referência
+Não utilizar `datetime.now()` para decidir disponibilidade do replay e não permitir backdating arbitrário de `B`.
+
+## 5.2 Precommit e hindsight bias
+
+A sequência obrigatória é:
+
+```text
+policy registrada em B
+        ↓
+B <= T
+        ↓
+Analysis(T)
+        ↓
+futuro após T
+        ↓
+Outcome Evaluation(E)
+```
+
+É proibido:
+
+```text
+futuro conhecido
+        ↓
+escolher novo H ou threshold para Analysis(T)
+        ↓
+Outcome
+```
+
+Se a sessão não possuía policy elegível para `T`, a Analysis não se torna retroativamente elegível quando uma policy é criada depois.
+
+## 5.3 Candle de referência
 
 O candle Ground Truth de referência é:
 
@@ -212,12 +401,12 @@ cujo close_time <= T
 
 Se não existir candle de referência válido em ou antes de `T`, a avaliação retorna estado explícito de indisponibilidade e **não cria Outcome**.
 
-## 4.3 Horizonte futuro
+## 5.4 Horizonte futuro
 
 Seja:
 
 ```text
-H = OutcomeConfig.horizon_closed_candles
+H = policy.horizon_closed_candles
 ```
 
 Após a referência, selecionar os próximos `H` candles Ground Truth fechados em ordem temporal crescente.
@@ -236,26 +425,28 @@ A avaliação só está disponível se:
 final_candle.close_time <= E
 ```
 
-## 4.4 Estados de disponibilidade
+## 5.5 Estados de disponibilidade
 
 A orquestração deve representar explicitamente pelo menos:
 
 ```text
 AVAILABLE
 PENDING_HORIZON
+UNAVAILABLE_POLICY
+POLICY_BOUND_TOO_LATE
 UNAVAILABLE_REFERENCE
 UNAVAILABLE_END_OF_DATASET
 ```
 
 ### `AVAILABLE`
 
-Existe referência válida, existem exatamente `H` candles futuros fechados necessários e o candle final já está autorizado por `E`.
+Existe policy elegível, referência válida, existem exatamente `H` candles futuros fechados necessários e o candle final já está autorizado por `E`.
 
 Somente neste estado o `OutcomeEvaluator` pode produzir e persistir `Outcome`.
 
 ### `PENDING_HORIZON`
 
-Existe referência válida, porém menos de `H` candles futuros necessários estão disponíveis até `E`, e a fonte ainda não atingiu estado terminal para a sessão.
+Existe policy elegível e referência válida, porém menos de `H` candles futuros necessários estão disponíveis até `E`, e a fonte ainda não atingiu estado terminal para a sessão.
 
 Resultado:
 
@@ -264,16 +455,37 @@ nenhum Outcome
 operação pode ser repetida posteriormente
 ```
 
-### `UNAVAILABLE_REFERENCE`
+### `UNAVAILABLE_POLICY`
 
-Não existe candle Ground Truth fechado válido em ou antes de `T`.
+Não existe policy para a sessão.
 
 Resultado:
 
 ```text
 nenhum Outcome
-nenhum resultado fictício
+não é permitido escolher OutcomeConfig em E
 ```
+
+### `POLICY_BOUND_TOO_LATE`
+
+Existe policy para a sessão, porém:
+
+```text
+policy.bound_at > Analysis.timestamp
+```
+
+Resultado:
+
+```text
+nenhum Outcome para aquela Analysis
+nenhuma associação retroativa
+```
+
+### `UNAVAILABLE_REFERENCE`
+
+Não existe candle Ground Truth fechado válido em ou antes de `T`.
+
+Resultado: nenhum Outcome.
 
 ### `UNAVAILABLE_END_OF_DATASET`
 
@@ -286,25 +498,27 @@ nenhum Outcome
 horizonte não é reduzido
 ```
 
-Análises sem Outcome por indisponibilidade de referência, horizonte pendente ou fim de dataset não entram nas métricas de análises avaliadas.
+Análises sem Outcome por ausência/policy tardia, indisponibilidade de referência, horizonte pendente ou fim de dataset não entram nas métricas de análises avaliadas.
 
-## 4.5 Entradas temporais inválidas
+## 5.6 Entradas temporais inválidas
 
 Devem falhar explicitamente, sem persistência:
 
-- `T` naive;
-- `E` naive;
+- `B`, `T` ou `E` naive;
 - `E < T`;
 - Ground Truth com timestamps naive;
 - janela fora da sessão da Analysis;
 - referência com `close == 0`;
-- dados Ground Truth estruturalmente inconsistentes.
+- dados Ground Truth estruturalmente inconsistentes;
+- policy de outra sessão;
+- tentativa de usar policy tardia para aquela Analysis;
+- tentativa de fornecer configuração ad hoc na avaliação.
 
 ---
 
-# 5. Ground Truth boundary
+# 6. Ground Truth boundary
 
-## 5.1 Contrato dedicado
+## 6.1 Contrato dedicado
 
 A FASE 7 introduz conceitualmente um contrato de leitura exclusivo da camada de avaliação:
 
@@ -322,6 +536,8 @@ get_evaluation_window(
     horizon_closed_candles,
 ) -> GroundTruthWindow
 ```
+
+`horizon_closed_candles` é obtido da policy previamente carregada; não é uma escolha livre do chamador em `E`.
 
 `GroundTruthWindow` deve expor somente o mínimo necessário:
 
@@ -343,11 +559,15 @@ Regras do provider:
 
 A implementação concreta do provider pode adaptar o replay controlado, mas o domínio de Outcome não deve depender diretamente de `ReplaySource`.
 
-## 5.2 Fluxos permitidos e proibidos
+## 6.2 Fluxos permitidos e proibidos
 
 Permitido:
 
 ```text
+OutcomeEvaluationPolicy
+        ↓
+Analysis persistida
+        ↓
 Replay/Ground Truth
         ↓
 GroundTruthProvider
@@ -377,13 +597,26 @@ Outcome futuro
 UPDATE Analysis
 ```
 
+```text
+Ground Truth conhecido
+    ↓
+escolher Policy/OutcomeConfig retroativamente
+```
+
 ---
 
-# 6. Fronteira contra future leakage
+# 7. Fronteira contra future leakage
 
 A distinção normativa é:
 
 ```text
+POLICY EM B
+compromete H e threshold
+B <= T
+imutável
+
+        ↓
+
 ANALYSIS EM T
 usa somente informação <= T
 é persistida
@@ -394,6 +627,7 @@ usa somente informação <= T
 OUTCOME EVALUATION EM E
 pode observar somente o Ground Truth necessário
 com close_time <= E
+usa a policy já comprometida
 
         ↓
 
@@ -402,17 +636,21 @@ adiciona Outcome
 nunca reescreve Analysis
 ```
 
-Adicionar novos candles futuros, completar o horizonte ou avançar o replay pode alterar o estado de disponibilidade de `PENDING_HORIZON` para `AVAILABLE` e permitir a criação de Outcome.
+Adicionar novos candles futuros, completar o horizonte ou avançar o replay pode alterar `PENDING_HORIZON` para `AVAILABLE` e permitir a criação de Outcome.
 
-Isso **não pode** alterar, recalcular ou substituir a Analysis histórica.
+Isso **não pode** alterar:
+
+- `Analysis(T)`;
+- a policy;
+- horizonte;
+- threshold;
+- confidence histórica.
 
 Um teste de regressão da FASE 6 deve continuar comprovando que adicionar futuro não altera `Analysis(T)`.
 
 ---
 
-# 7. Estado realizado e política numérica
-
-## 7.1 Fórmula canônica
+# 8. Estado realizado e política numérica
 
 Com:
 
@@ -427,38 +665,29 @@ O retorno realizado é:
 realized_return = (P1 - P0) / P0
 ```
 
-`P0 == 0` é Ground Truth inválido para esta avaliação e deve falhar explicitamente.
+`P0 == 0` é Ground Truth inválido e deve falhar explicitamente.
 
-## 7.2 Decimal
-
-Para preservar a política numérica já estabelecida nas Market Features:
+Política numérica:
 
 - `reference_close`, `final_close`, threshold e retorno usam `Decimal`;
 - divisões usam `localcontext()` com precisão 28;
 - arredondamento: `ROUND_HALF_EVEN`;
-- não usar `float` para o cálculo do retorno realizado;
+- não usar `float` no retorno realizado;
 - não aplicar `quantize` silencioso.
-
-## 7.3 Classificação do resultado
 
 Seja:
 
 ```text
 R = realized_return
-D = realized_return_threshold
+D = policy.realized_return_threshold
 ```
 
 Regra exata:
 
 ```text
-se R > D
-→ UP
-
-se R < -D
-→ DOWN
-
-caso contrário
-→ SIDEWAYS
+R > D   → UP
+R < -D  → DOWN
+senão   → SIDEWAYS
 ```
 
 Logo:
@@ -472,15 +701,13 @@ Com `D == 0`, somente retorno exatamente zero é `SIDEWAYS`.
 
 ---
 
-# 8. Predicted state e `UNCERTAIN`
-
-Para métricas da FASE 7:
+# 9. Predicted state e `UNCERTAIN`
 
 ```text
 predicted_state = Analysis.market_state
 ```
 
-Estados possíveis da previsão:
+Predição:
 
 ```text
 UP
@@ -489,7 +716,7 @@ SIDEWAYS
 UNCERTAIN
 ```
 
-Estados possíveis do resultado realizado:
+Resultado realizado:
 
 ```text
 UP
@@ -497,25 +724,25 @@ DOWN
 SIDEWAYS
 ```
 
-`UNCERTAIN` significa que a Analysis se absteve de produzir uma classificação determinada.
+`UNCERTAIN` significa abstention.
 
 Regras:
 
-1. `UNCERTAIN` participa do total de análises avaliadas se existir Outcome correspondente;
-2. `UNCERTAIN` nunca pode ser `realized_state`;
-3. `UNCERTAIN` aparece como coluna de previsão da confusion matrix;
-4. `UNCERTAIN` possui `uncertain_count` e `uncertain_frequency`;
-5. coverage mede a fração de previsões diferentes de `UNCERTAIN`;
-6. uma previsão `UNCERTAIN` nunca conta como acerto de accuracy;
-7. `UNCERTAIN` não possui precision própria, porque não existe classe realizada equivalente;
-8. uma previsão `UNCERTAIN` para um resultado realizado `C` conta como falso negativo de `C` e reduz `recall(C)`;
-9. previsões `UNCERTAIN` não entram no denominador de `precision(UP)`, `precision(DOWN)` ou `precision(SIDEWAYS)`.
+1. participa do total de análises avaliadas se existir Outcome correspondente;
+2. nunca pode ser `realized_state`;
+3. aparece como coluna de previsão da confusion matrix;
+4. possui `uncertain_count` e `uncertain_frequency`;
+5. coverage mede a fração de previsões não-`UNCERTAIN`;
+6. nunca conta como acerto de accuracy;
+7. não possui precision própria;
+8. quando o realizado é `C`, conta como falso negativo de `C` e reduz `recall(C)`;
+9. não entra no denominador de precision de `UP`, `DOWN` ou `SIDEWAYS`.
 
 ---
 
-# 9. Conjunto avaliado
+# 10. Metrics Cohort — target homogêneo
 
-Uma unidade métrica válida é um par:
+Uma unidade métrica válida continua sendo:
 
 ```text
 (Analysis, Outcome)
@@ -527,43 +754,82 @@ com:
 Outcome.analysis_id == Analysis.analysis_id
 ```
 
-Somente Outcomes persistidos e válidos entram nas métricas.
+Porém um **Metric Report** possui obrigatoriamente uma única identidade de target:
+
+```text
+Metrics Cohort = exatamente um policy_id
+```
+
+Para um relatório de policy `P`:
+
+```text
+para todo Outcome O do cohort:
+O.policy_id == P.policy_id
+O.horizon_closed_candles == P.horizon_closed_candles
+O.realized_return_threshold == P.realized_return_threshold
+```
+
+Misturar policies diferentes na mesma agregação é proibido.
+
+A camada de métricas deve escolher a solução mínima:
+
+```text
+receber policy + pares já filtrados
+```
+
+ou validar estritamente que todos os pares possuem o mesmo `policy_id` e configuração.
+
+No MVP canônico, entrada mista deve **falhar explicitamente**, não ser particionada silenciosamente.
+
+Erro conceitual:
+
+```text
+MixedOutcomePolicyError
+```
+
+O relatório métrico deve expor pelo menos:
+
+```text
+policy_id
+horizon_closed_candles
+realized_return_threshold
+```
+
+além das métricas calculadas.
 
 Defina:
 
 ```text
-N = quantidade total de pares avaliados
+N = quantidade total de pares avaliados do mesmo policy_id
 ```
 
 Análises sem Outcome não entram em `N`.
 
 ---
 
-# 10. Confusion matrix
+# 11. Confusion matrix
 
 A matriz possui orientação fixa:
 
 ```text
-LINHAS   = realized_state
-COLUNAS  = predicted_state
+LINHAS  = realized_state
+COLUNAS = predicted_state
 ```
 
-Ordem fixa das linhas:
+Ordem das linhas:
 
 ```text
 [UP, DOWN, SIDEWAYS]
 ```
 
-Ordem fixa das colunas:
+Ordem das colunas:
 
 ```text
 [UP, DOWN, SIDEWAYS, UNCERTAIN]
 ```
 
-Definição:
-
 ```text
-M[r, p] = quantidade de pares
+M[r, p] = quantidade de pares do cohort homogêneo
           com realized_state == r
           e predicted_state == p
 ```
@@ -572,24 +838,14 @@ A soma das 12 células deve ser exatamente `N`.
 
 ---
 
-# 11. Accuracy
-
-Defina:
+# 12. Accuracy
 
 ```text
-correct =
-M[UP, UP]
-+ M[DOWN, DOWN]
-+ M[SIDEWAYS, SIDEWAYS]
-```
-
-Então:
-
-```text
+correct = M[UP,UP] + M[DOWN,DOWN] + M[SIDEWAYS,SIDEWAYS]
 accuracy = correct / N
 ```
 
-Previsões `UNCERTAIN` estão no denominador `N`, mas nunca no numerador.
+`UNCERTAIN` está no denominador e nunca no numerador.
 
 Se `N == 0`:
 
@@ -599,22 +855,19 @@ accuracy = None
 
 ---
 
-# 12. Precision por classe
+# 13. Precision por classe
 
-Precision é definida somente para as três classes realizáveis:
+Para:
 
 ```text
 C ∈ {UP, DOWN, SIDEWAYS}
 ```
 
 ```text
-precision(C) =
-M[C, C]
-/
-sum(M[r, C] para r em {UP, DOWN, SIDEWAYS})
+precision(C) = M[C,C] / sum(M[r,C] para r em {UP,DOWN,SIDEWAYS})
 ```
 
-Se nenhuma previsão da classe `C` existir:
+Denominador zero:
 
 ```text
 precision(C) = None
@@ -624,24 +877,15 @@ Não existe `precision(UNCERTAIN)` no MVP.
 
 ---
 
-# 13. Recall por classe
-
-Para:
+# 14. Recall por classe
 
 ```text
-C ∈ {UP, DOWN, SIDEWAYS}
+recall(C) = M[C,C] / sum(M[C,p] para p em {UP,DOWN,SIDEWAYS,UNCERTAIN})
 ```
 
-```text
-recall(C) =
-M[C, C]
-/
-sum(M[C, p] para p em {UP, DOWN, SIDEWAYS, UNCERTAIN})
-```
+Assim, `UNCERTAIN` reduz recall da classe realizada.
 
-Assim, uma previsão `UNCERTAIN` quando o realizado foi `C` reduz o recall de `C`.
-
-Se nenhum resultado realizado da classe `C` existir:
+Denominador zero:
 
 ```text
 recall(C) = None
@@ -649,26 +893,16 @@ recall(C) = None
 
 ---
 
-# 14. Coverage e `UNCERTAIN`
+# 15. Coverage e `UNCERTAIN`
 
 ```text
-uncertain_count =
-sum(M[r, UNCERTAIN] para r em {UP, DOWN, SIDEWAYS})
-```
-
-```text
+uncertain_count = sum(M[r,UNCERTAIN] para r em {UP,DOWN,SIDEWAYS})
 non_uncertain_count = N - uncertain_count
-```
-
-```text
 coverage = non_uncertain_count / N
-```
-
-```text
 uncertain_frequency = uncertain_count / N
 ```
 
-Invariante quando `N > 0`:
+Quando `N > 0`:
 
 ```text
 coverage + uncertain_frequency == 1
@@ -684,31 +918,33 @@ uncertain_frequency = None
 
 ---
 
-# 15. Política numérica das métricas
+# 16. Política numérica das métricas
 
 Contagens são inteiros.
 
-Razões derivadas devem ser calculadas deterministicamente com `Decimal` em contexto local de precisão 28 e `ROUND_HALF_EVEN`.
+Razões derivadas usam `Decimal`, contexto local com precisão 28 e `ROUND_HALF_EVEN`.
 
-Quando uma razão possuir denominador zero, retornar `None`, nunca inventar `0.0`.
+Denominador zero retorna `None`, nunca `0.0` inventado.
 
-Nenhuma métrica pode alterar Analysis, Outcome ou confidence persistidos.
+Nenhuma métrica pode alterar Analysis, Outcome, policy ou confidence persistidos.
 
 ---
 
-# 16. Confidence calibration no MVP
+# 17. Confidence calibration no MVP
 
-## 16.1 Semântica
+## 17.1 Semântica
 
-`Analysis.confidence` continua sendo a confiança operacional do classificador rule-based definida na FASE 6.
+`Analysis.confidence` continua sendo confiança operacional rule-based, **não probabilidade estatística**.
 
-Ela **não é probabilidade estatística**.
+A FASE 7 não recalibra nem reescreve confidence. Produz somente diagnóstico empírico da relação entre confidence registrada e acerto posteriormente observado.
 
-A FASE 7 não recalibra nem reescreve confidence. Ela produz somente um diagnóstico empírico da relação entre confidence registrada e acerto posteriormente observado.
+## 17.2 Cohort obrigatório
 
-## 16.2 Conjunto utilizado
+Confidence calibration é calculada **somente dentro de um único `policy_id`**.
 
-Entram no diagnóstico somente pares avaliados cuja previsão seja:
+É proibido combinar no mesmo `weighted_alignment_gap` Outcomes de policies, horizons ou thresholds diferentes.
+
+Dentro do cohort homogêneo, entram somente previsões:
 
 ```text
 UP
@@ -716,27 +952,23 @@ DOWN
 SIDEWAYS
 ```
 
-Pares com `Analysis.market_state == UNCERTAIN` são excluídos da calibração porque representam abstention, não uma previsão determinada.
+`UNCERTAIN` é excluído da calibração.
 
 Defina:
 
 ```text
-Nc = quantidade de pares não-UNCERTAIN avaliados
+Nc = quantidade de pares não-UNCERTAIN do mesmo policy_id
 ```
 
-## 16.3 Conversão numérica
-
-Para agregação determinística:
+## 17.3 Conversão e bins
 
 ```text
 confidence_decimal = Decimal(str(Analysis.confidence))
 ```
 
-A confidence deve continuar válida em `[0, 1]`.
+Confidence deve estar em `[0,1]`.
 
-## 16.4 Bins canônicos
-
-O MVP utiliza cinco bins fixos e explicitamente documentados:
+Bins canônicos:
 
 ```text
 B1 = [0.0, 0.2)
@@ -748,9 +980,7 @@ B5 = [0.8, 1.0]
 
 `1.0` pertence ao último bin.
 
-Os bins não são defaults escondidos; são parte normativa do contrato MVP.
-
-## 16.5 Métricas por bin
+## 17.4 Métricas por bin
 
 Para cada bin `b`:
 
@@ -762,12 +992,8 @@ Se `n_b > 0`:
 
 ```text
 mean_confidence_b = soma(confidence_decimal) / n_b
-
-observed_accuracy_b =
-quantidade de previsões corretas no bin / n_b
-
-absolute_gap_b =
-abs(mean_confidence_b - observed_accuracy_b)
+observed_accuracy_b = acertos_no_bin / n_b
+absolute_gap_b = abs(mean_confidence_b - observed_accuracy_b)
 ```
 
 Se `n_b == 0`:
@@ -778,16 +1004,13 @@ observed_accuracy_b = None
 absolute_gap_b = None
 ```
 
-## 16.6 Diagnóstico agregado
+## 17.5 Diagnóstico agregado
 
 Quando `Nc > 0`:
 
 ```text
 weighted_alignment_gap =
-sum(
-    (n_b / Nc) * absolute_gap_b
-    para bins não vazios
-)
+sum((n_b / Nc) * absolute_gap_b para bins não vazios)
 ```
 
 Quando `Nc == 0`:
@@ -796,37 +1019,64 @@ Quando `Nc == 0`:
 weighted_alignment_gap = None
 ```
 
-Esse valor é apenas um **diagnóstico de alinhamento operacional**, não ECE probabilístico, não Brier score e não prova de calibração estatística.
-
-O relatório de confidence calibration do MVP deve expor:
-
-- os cinco bins na ordem canônica;
-- `n_b`;
-- `mean_confidence_b`;
-- `observed_accuracy_b`;
-- `absolute_gap_b`;
-- `weighted_alignment_gap`.
+É diagnóstico de alinhamento operacional, não ECE probabilístico, Brier score ou prova de calibração estatística.
 
 ---
 
-# 17. Persistência de Outcome
+# 18. Persistência conceitual da Policy
 
-## 17.1 Tabela conceitual
+A FASE 7 implementará posteriormente uma entidade/tabela conceitual:
 
-A FASE 7 implementará posteriormente uma tabela:
+```text
+outcome_evaluation_policies
+```
+
+Esta missão de governança **não cria migration nem tabela**.
+
+Campos mínimos:
+
+```text
+policy_id
+session_id
+horizon_closed_candles
+realized_return_threshold
+bound_at
+```
+
+Constraints conceituais mínimas:
+
+- `policy_id` primary key;
+- `session_id` FK obrigatória para `sessions.session_id`;
+- `session_id` UNIQUE no MVP, garantindo no máximo uma policy por sessão;
+- `horizon_closed_candles >= 1`;
+- `realized_return_threshold >= 0` e finito;
+- `bound_at` timezone-aware na borda de domínio;
+- valores Decimal persistidos como numéricos exatos, não `float`.
+
+`bound_at` deve ser capturado do relógio lógico autoritativo no registro; não pode ser backdated pelo chamador.
+
+Imutabilidade:
+
+- não existe UPDATE semântico;
+- mesma identidade + mesmos dados → idempotente;
+- mesma identidade + dados diferentes → `OutcomeEvaluationPolicyConflictError`;
+- outra policy para a mesma sessão → conflito explícito no MVP.
+
+---
+
+# 19. Persistência conceitual de Outcome
+
+A FASE 7 implementará posteriormente:
 
 ```text
 outcomes
 ```
 
-Esta missão de governança **não cria migration nem tabela**.
-
-## 17.2 Campos mínimos
-
-A persistência deve representar, sem perda semântica, os campos canônicos de `Outcome`:
+Campos mínimos:
 
 ```text
 analysis_id
+policy_id
 
 evaluation_timestamp
 reference_candle_open_time
@@ -844,191 +1094,210 @@ realized_state
 evidence
 ```
 
-## 17.3 Constraints mínimas
+Constraints mínimas:
 
-- `analysis_id` como primary key;
-- `analysis_id` também foreign key para `analyses.analysis_id`;
-- FK com política que preserve auditoria; não apagar Analysis silenciosamente através do Outcome;
-- timestamps obrigatórios e timezone-aware na borda de domínio;
+- `analysis_id` primary key;
+- `analysis_id` FK para `analyses.analysis_id`;
+- `policy_id` FK para `outcome_evaluation_policies.policy_id`;
+- FKs com política que preserve auditoria;
 - `horizon_closed_candles >= 1`;
 - `realized_return_threshold >= 0`;
-- `realized_state` limitado a `UP`, `DOWN`, `SIDEWAYS`;
+- `realized_state` em `UP`, `DOWN`, `SIDEWAYS`;
 - `reference_close != 0`;
 - `final_candle_close_time > reference_candle_close_time`;
-- evidence persistida em representação ordenada com round-trip sem perda;
-- valores Decimal persistidos como numéricos exatos, não `float`.
+- evidence ordenada com round-trip sem perda;
+- Decimal exato, não `float`.
 
-Validações que dependem da `Analysis`, como `reference_candle_close_time <= Analysis.timestamp`, devem ser garantidas pela camada de domínio/orquestração e testadas também na integração.
+Validações cruzadas obrigatórias na camada de domínio/orquestração e integração:
 
-## 17.4 Imutabilidade
+```text
+policy.session_id == Analysis.session_id
+policy.bound_at <= Analysis.timestamp
+Outcome.policy_id == policy.policy_id
+Outcome.horizon_closed_candles == policy.horizon_closed_candles
+Outcome.realized_return_threshold == policy.realized_return_threshold
+```
 
 Não existe UPDATE semântico de Outcome no MVP.
 
-Após persistido, qualquer tentativa de alterar horizonte, threshold, preços de referência/final, retorno, realized state, timestamps ou evidence para a mesma identidade deve produzir conflito explícito.
-
-## 17.5 Métricas não são tabela no MVP
-
-Accuracy, precision, recall, confusion matrix, coverage e confidence calibration são agregados derivados de `Analysis + Outcome`.
-
-A FASE 7 não precisa criar tabela de métricas persistidas. Persistir agregados fica fora do MVP enquanto não existir decisão específica.
+Métricas agregadas continuam derivadas; não há tabela persistente de métricas no MVP.
 
 ---
 
-# 18. Identidade, idempotência e reavaliação
+# 20. Identidade, idempotência e reavaliação
 
-Cardinalidade canônica do MVP:
+Policy:
 
 ```text
+identity = policy_id
+Session 1 → 0..1 Policy
+```
+
+Outcome:
+
+```text
+identity = analysis_id
 Analysis 1 → 0..1 Outcome
 ```
 
-Identidade:
+Outcome idempotência:
 
 ```text
-Outcome identity = analysis_id
+mesmo analysis_id + mesmos dados completos
+→ idempotente
+
+mesmo analysis_id + qualquer dado diferente
+→ OutcomeConflictError
 ```
-
-Regras:
-
-```text
-mesmo analysis_id + mesmos dados completos de Outcome
-→ operação idempotente permitida
-
-mesmo analysis_id + qualquer dado de Outcome diferente
-→ conflito explícito
-```
-
-Erro conceitual:
-
-```text
-OutcomeConflictError
-```
-
-### Reavaliação
 
 Enquanto não existe Outcome:
 
 - `PENDING_HORIZON` pode ser reavaliado posteriormente;
-- quando o horizonte fica disponível, um único Outcome pode ser criado.
+- quando o horizonte fica disponível, um único Outcome pode ser criado **com a mesma policy já comprometida**.
 
 Depois de persistido:
 
-- repetir a avaliação com a mesma configuração e mesmo Ground Truth deve reproduzir exatamente o mesmo Outcome e ser idempotente;
-- configuração diferente para a mesma Analysis não pode sobrescrever o Outcome existente;
-- Ground Truth divergente para a mesma identidade deve produzir conflito, nunca atualização.
+- mesma policy + mesmo Ground Truth → mesmo Outcome, idempotente;
+- outra configuração não pode sobrescrever o Outcome;
+- Ground Truth divergente para a mesma identidade produz conflito, nunca UPDATE.
 
-Múltiplos horizontes ou múltiplas configurações simultâneas por Analysis são `FUTURE` e exigem nova decisão/escopo.
+Múltiplos horizons/policies simultâneos por Analysis são `FUTURE`.
 
 ---
 
-# 19. `OutcomeEvaluator`
+# 21. `OutcomeEvaluator`
 
-`OutcomeEvaluator` é componente de domínio puro.
+`OutcomeEvaluator` é domínio puro.
 
 Responsabilidades:
 
-1. receber uma `Analysis` já persistida/imutável;
-2. receber candle de referência Ground Truth válido;
-3. receber candle final Ground Truth válido;
-4. receber `OutcomeConfig`;
-5. validar invariantes de domínio;
+1. receber `Analysis` persistida/imutável;
+2. receber a policy/configuração já comprometida;
+3. receber candle de referência Ground Truth válido;
+4. receber candle final Ground Truth válido;
+5. validar invariantes;
 6. calcular `realized_return`;
 7. classificar `RealizedState`;
-8. produzir `Outcome` determinístico.
+8. produzir `Outcome` determinístico com `policy_id`.
 
-Não acessa:
+Não acessa PostgreSQL, SQLAlchemy, FastAPI, filesystem, relógio real, StorageProvider, ReplaySource, GroundTruthProvider, frontend ou Dashboard.
 
-- PostgreSQL;
-- SQLAlchemy;
-- FastAPI;
-- filesystem;
-- relógio real;
-- `StorageProvider`;
-- `ReplaySource` diretamente;
-- provider de Ground Truth diretamente;
-- frontend;
-- Dashboard.
-
-Propriedade obrigatória:
+Propriedade:
 
 ```text
 mesma Analysis
++ mesma Policy
 + mesma referência
 + mesmo candle final
-+ mesma configuração
 =
 mesmo Outcome
 ```
 
 ---
 
-# 20. Orquestração
+# 22. Orquestração
 
-A camada conceitual de aplicação/domínio responsável pela fase é denominada:
+A camada conceitual é:
 
 ```text
 OutcomeEvaluationService
 ```
 
+Contrato canônico de avaliação:
+
+```text
+evaluate(
+    analysis_id,
+    evaluation_as_of,
+)
+```
+
+**Não** recebe `OutcomeConfig` arbitrário e não recebe `policy_id` escolhível pelo chamador para trocar o target.
+
 Responsabilidades:
 
-1. receber `analysis_id`, `evaluation_as_of` e `OutcomeConfig`;
-2. carregar `Analysis` pelo `StorageProvider`;
-3. rejeitar Analysis inexistente;
-4. validar timestamps e configuração;
-5. consultar `GroundTruthProvider.get_evaluation_window(...)`;
-6. interpretar `AVAILABLE`, `PENDING_HORIZON`, `UNAVAILABLE_REFERENCE` ou `UNAVAILABLE_END_OF_DATASET`;
-7. chamar `OutcomeEvaluator` somente quando `AVAILABLE`;
-8. persistir Outcome imutável;
-9. retornar Outcome/status de disponibilidade sem modificar Analysis.
+1. carregar `Analysis` pelo `StorageProvider`;
+2. rejeitar Analysis inexistente;
+3. carregar a policy única por `Analysis.session_id`;
+4. retornar `UNAVAILABLE_POLICY` se não existir;
+5. validar `policy.bound_at <= Analysis.timestamp`;
+6. retornar/rejeitar `POLICY_BOUND_TOO_LATE` se a policy for tardia;
+7. obter horizonte/threshold exclusivamente da policy;
+8. validar `evaluation_as_of`;
+9. consultar `GroundTruthProvider.get_evaluation_window(...)` com o horizonte comprometido;
+10. interpretar estados de disponibilidade;
+11. chamar `OutcomeEvaluator` somente quando `AVAILABLE`;
+12. persistir Outcome imutável;
+13. retornar Outcome/status sem modificar Analysis ou policy.
 
-A orquestração pode depender de `StorageProvider` e `GroundTruthProvider`.
+O serviço pode depender de `StorageProvider` e `GroundTruthProvider`. `OutcomeEvaluator` não depende deles.
 
-O `OutcomeEvaluator` não depende desses providers.
+### Registro da policy
+
+A futura operação de registro é separada da avaliação e deve ocorrer antes da Analysis elegível:
+
+```text
+register_outcome_evaluation_policy(
+    session_id,
+    policy_id,
+    OutcomeConfig,
+)
+```
+
+No registro, `bound_at` é capturado pelo relógio lógico autoritativo da sessão. O chamador não fornece um timestamp passado arbitrário.
 
 ---
 
-# 21. Extensões futuras mínimas de `StorageProvider`
+# 23. Extensões futuras mínimas de `StorageProvider`
 
-Quando a implementação da FASE 7 for autorizada, o contrato de storage poderá ser estendido somente com o mínimo necessário:
+Quando a implementação da FASE 7 for autorizada, o contrato poderá ser estendido somente com o mínimo necessário:
 
 ```text
-save_outcome(outcome: Outcome) -> None
+save_outcome_evaluation_policy(policy) -> None
+get_outcome_evaluation_policy(policy_id) -> OutcomeEvaluationPolicy | None
+get_outcome_evaluation_policy_for_session(session_id) -> OutcomeEvaluationPolicy | None
 
-get_outcome(analysis_id: str) -> Outcome | None
-
-list_outcomes() -> tuple[Outcome, ...]
+save_outcome(outcome) -> None
+get_outcome(analysis_id) -> Outcome | None
+list_outcomes(policy_id) -> tuple[Outcome, ...]
 ```
 
-Mais o conflito explícito equivalente:
+Erros conceituais:
 
 ```text
+OutcomeEvaluationPolicyConflictError
 OutcomeConflictError
 ```
 
-Para métricas, `list_outcomes()` combinado com `get_analysis(outcome.analysis_id)` é suficiente no MVP. Consultas agregadas/otimizadas podem ser introduzidas somente se necessidade concreta for demonstrada, sem alterar a semântica.
+`list_outcomes(policy_id)` é preferido no MVP porque expressa a fronteira de cohort no próprio contrato de leitura.
 
-Ground Truth **não** deve ser incorporado ao `StorageProvider`; ele possui contrato próprio de avaliação.
+Mesmo assim, a camada de métricas deve validar que todo Outcome retornado possui o mesmo `policy_id` e configuração da policy carregada.
+
+Uma implementação futura que mantenha `list_outcomes()` sem filtro só seria aceitável se agrupar/validar estritamente por `policy_id` antes de qualquer agregação; mistura silenciosa é proibida.
+
+Ground Truth **não** deve ser incorporado ao `StorageProvider`.
 
 ---
 
-# 22. Contrato das métricas
+# 24. Contrato das métricas
 
-A camada de métricas deve ser pura e receber pares `Analysis + Outcome` já carregados.
+A camada de métricas deve ser pura e receber:
 
-Ela não deve:
+```text
+OutcomeEvaluationPolicy
++ pares Analysis/Outcome da mesma policy
+```
 
-- consultar Ground Truth;
-- recalcular Outcome;
-- alterar Analysis;
-- alterar Outcome;
-- consultar relógio;
-- depender de PostgreSQL;
-- depender de ReplaySource.
+Ela deve validar homogeneidade antes de calcular qualquer agregado.
+
+Não deve consultar Ground Truth, recalcular Outcome, alterar Analysis/Outcome/policy, consultar relógio, depender de PostgreSQL ou ReplaySource.
 
 Resultado conceitual mínimo:
 
 ```text
+policy_id
+horizon_closed_candles
+realized_return_threshold
 total_evaluated
 accuracy
 precision_by_class
@@ -1040,11 +1309,11 @@ uncertain_frequency
 confidence_calibration
 ```
 
-A ordem das classes e regras de denominador deste documento são normativas.
+Entrada com policies incompatíveis deve falhar com erro explícito antes de produzir resultados parciais.
 
 ---
 
-# 23. Critérios de aceite da FASE 7
+# 25. Critérios de aceite da FASE 7
 
 A FASE 7 somente poderá ser encerrada quando houver evidência automatizada de todos os critérios abaixo.
 
@@ -1062,37 +1331,48 @@ A FASE 7 somente poderá ser encerrada quando houver evidência automatizada de 
 12. ausência de referência retorna `UNAVAILABLE_REFERENCE` e não cria Outcome;
 13. timestamps naive ou `evaluation_as_of < Analysis.timestamp` falham explicitamente;
 14. `reference_close == 0` é rejeitado sem Outcome;
-15. `Analysis` permanece byte/semanticamente inalterada antes e depois da avaliação;
+15. `Analysis` permanece semanticamente inalterada antes e depois da avaliação;
 16. `AnalysisEngine` e `AnalysisLabService` permanecem sem acesso a Ground Truth/OutcomeEvaluator;
 17. adicionar futuro continua sem alterar `Analysis(T)`;
-18. `OutcomeEvaluator` é determinístico para mesma entrada/configuração;
-19. Outcome persistido realiza round-trip sem perda de Decimal, timestamps ou evidence;
+18. `OutcomeEvaluator` é determinístico para mesma entrada/policy;
+19. Outcome persistido realiza round-trip sem perda de Decimal, timestamps, policy_id ou evidence;
 20. Outcome persistido é imutável;
-21. mesma identidade + mesmos dados é idempotente;
-22. mesma identidade + dados diferentes produz `OutcomeConflictError`;
+21. mesma identidade de Outcome + mesmos dados é idempotente;
+22. mesma identidade de Outcome + dados diferentes produz `OutcomeConflictError`;
 23. confusion matrix usa linhas `[UP, DOWN, SIDEWAYS]` e colunas `[UP, DOWN, SIDEWAYS, UNCERTAIN]`;
-24. accuracy usa todas as análises avaliadas no denominador e trata `UNCERTAIN` como não acerto;
-25. precision por `UP`, `DOWN`, `SIDEWAYS` segue o denominador de previsões da respectiva classe e retorna `None` com denominador zero;
-26. recall por `UP`, `DOWN`, `SIDEWAYS` inclui previsões `UNCERTAIN` como falso negativo e retorna `None` com denominador zero;
+24. accuracy usa todas as análises avaliadas do cohort no denominador e trata `UNCERTAIN` como não acerto;
+25. precision por `UP`, `DOWN`, `SIDEWAYS` segue o denominador da respectiva classe e retorna `None` com denominador zero;
+26. recall por `UP`, `DOWN`, `SIDEWAYS` inclui `UNCERTAIN` como falso negativo e retorna `None` com denominador zero;
 27. coverage é a fração de previsões não-`UNCERTAIN`;
 28. `uncertain_count` e `uncertain_frequency` obedecem às fórmulas canônicas;
 29. para `N == 0`, accuracy/coverage/uncertain_frequency são `None` e contagens/matriz permanecem zero;
-30. confidence calibration exclui `UNCERTAIN`, utiliza os cinco bins canônicos e produz estatísticas por bin determinísticas;
+30. confidence calibration exclui `UNCERTAIN`, usa os cinco bins canônicos e produz estatísticas determinísticas;
 31. bin vazio retorna métricas de bin `None` sem contaminar o agregado;
-32. `weighted_alignment_gap` usa somente previsões determinadas e retorna `None` quando `Nc == 0`;
-33. nenhuma métrica, Outcome ou execução de avaliação altera retrospectivamente `Analysis.confidence` ou qualquer outro campo da Analysis;
+32. `weighted_alignment_gap` retorna `None` quando `Nc == 0`;
+33. nenhuma métrica, Outcome ou avaliação altera retrospectivamente `Analysis.confidence` ou outro campo da Analysis;
 34. nenhuma funcionalidade da FASE 8/Dashboard é introduzida;
-35. nenhuma integração financeira, corretora, ML/RL, novos indicadores ou escopo pós-v1 é introduzido.
+35. nenhuma integração financeira, corretora, ML/RL, novos indicadores ou escopo pós-v1 é introduzido;
+36. a policy/configuração é registrada no relógio lógico autoritativo da sessão antes da Analysis correspondente ser elegível, com `policy.bound_at <= Analysis.timestamp`;
+37. policy com `bound_at > Analysis.timestamp` é rejeitada para aquela Analysis e não produz Outcome;
+38. policy persistida é imutável e não admite UPDATE semântico;
+39. mesma `policy_id` + mesmos dados completos é idempotente;
+40. mesma `policy_id` + dados diferentes produz `OutcomeEvaluationPolicyConflictError`;
+41. Outcome referencia inequivocamente a policy usada por `policy_id`;
+42. Outcome não pode divergir de `horizon_closed_candles` ou `realized_return_threshold` da policy;
+43. métricas de um único cohort homogêneo funcionam normalmente e expõem a policy/configuração do report;
+44. mistura de Outcomes de policies diferentes falha explicitamente antes de qualquer agregação;
+45. confidence calibration e `weighted_alignment_gap` nunca misturam policies/configurações;
+46. tentativa de escolher novo threshold ou horizonte depois do resultado não pode redefinir target, tornar Analysis antiga elegível, sobrescrever policy nem sobrescrever Outcome.
 
 Cada critério deve possuir teste automatizado ou evidência automatizada equivalente no fechamento formal.
 
 ---
 
-# 24. Test plan obrigatório
+# 26. Test plan obrigatório
 
-## 24.1 Unidade — `OutcomeConfig`
+## 26.1 Unidade — `OutcomeConfig`
 
-Cobrir no mínimo:
+Cobrir:
 
 ```text
 horizon >= 1
@@ -1103,7 +1383,24 @@ threshold negativo
 threshold NaN/infinito
 ```
 
-## 24.2 Unidade — `OutcomeEvaluator`
+## 26.2 Policy/config precommit
+
+Planejar testes para:
+
+- policy válida registrada antes da Analysis;
+- `bound_at` capturado pelo relógio lógico da sessão, não backdatável pelo chamador;
+- policy tardia rejeitada para Analysis anterior;
+- ausência de policy → `UNAVAILABLE_POLICY`;
+- policy imutável;
+- mesma policy idempotente;
+- conflito por mesma `policy_id` com dados diferentes;
+- conflito por segunda policy diferente na mesma sessão;
+- vínculo correto `Session → Policy → Analysis`;
+- `policy.bound_at <= Analysis.timestamp`;
+- tentativa de trocar threshold depois do futuro conhecido não altera target;
+- tentativa de trocar horizonte depois do futuro conhecido não altera target.
+
+## 26.3 Unidade — `OutcomeEvaluator`
 
 Cobrir:
 
@@ -1115,78 +1412,80 @@ igualdade em +threshold
 igualdade em -threshold
 reference_close zero
 sessão/contexto inconsistente
+policy incompatível
 timestamps inválidos
-mesma entrada → mesmo Outcome
-evidence determinística
+mesma entrada + mesma policy → mesmo Outcome
+policy_id/evidence determinísticos
 ```
 
-## 24.3 Orquestração/horizonte
+## 26.4 Orquestração/horizonte
 
-Com provider fake/determinístico:
+Com providers fakes/determinísticos:
 
-```text
-última referência fechada <= T
-H-ésimo candle futuro
-horizonte disponível
-PENDING_HORIZON
-UNAVAILABLE_REFERENCE
-UNAVAILABLE_END_OF_DATASET
-não sintetizar gaps
-não retornar candle futuro além de evaluation_as_of
-```
+- serviço não aceita OutcomeConfig arbitrário na avaliação;
+- serviço carrega policy pela sessão da Analysis;
+- `UNAVAILABLE_POLICY`;
+- `POLICY_BOUND_TOO_LATE`;
+- última referência fechada `<= T`;
+- H-ésimo candle futuro;
+- horizonte disponível;
+- `PENDING_HORIZON`;
+- `UNAVAILABLE_REFERENCE`;
+- `UNAVAILABLE_END_OF_DATASET`;
+- não sintetizar gaps;
+- não retornar candle além de `evaluation_as_of`;
+- Outcome reproduz `policy_id`, horizon e threshold da policy.
 
-## 24.4 Arquitetura / Ground Truth
+## 26.5 Arquitetura / Ground Truth
 
 Teste arquitetural deve provar que:
 
-- `AnalysisEngine` não importa `GroundTruthProvider`, ReplaySource ou OutcomeEvaluator;
+- `AnalysisEngine` não importa GroundTruthProvider, ReplaySource, OutcomeEvaluator ou policy de avaliação;
 - `AnalysisLabService` não consulta Ground Truth;
 - pipeline visual continua isolado de Ground Truth;
-- Outcome Evaluation acessa Ground Truth apenas pelo contrato autorizado.
+- Outcome Evaluation acessa Ground Truth apenas pelo contrato autorizado;
+- policy não fornece OHLC/Ground Truth ao módulo de Analysis.
 
-## 24.5 Regressão anti-future-leakage
+## 26.6 Regressão anti-future-leakage
 
-Reexecutar os testes da FASE 6 que comprovam:
+Reexecutar FASE 6 para comprovar que future candle, future snapshot e evolução futura de candle conhecido não alteram `Analysis(T)`.
 
-```text
-future candle
-future snapshot
-evolução futura de candle conhecido
-```
-
-não alteram `Analysis(T)`.
-
-Adicionar teste integrado em que o avanço do futuro muda somente:
+Adicionar cenário:
 
 ```text
-PENDING_HORIZON → AVAILABLE/Outcome
+Policy pré-comprometida
+→ Analysis(T)
+→ PENDING_HORIZON
+→ futuro avança
+→ AVAILABLE/Outcome
 ```
 
-sem modificar a Analysis original.
+sem modificar Analysis ou policy.
 
-## 24.6 Métricas
-
-Testes unitários devem cobrir:
-
-- matriz de confusão completa;
-- ordem fixa de linhas/colunas;
-- accuracy;
-- precision por cada classe;
-- precision com denominador zero;
-- recall por cada classe;
-- recall reduzido por `UNCERTAIN`;
-- recall com denominador zero;
-- coverage;
-- uncertain count;
-- uncertain frequency;
-- `N == 0`;
-- invariantes de soma da matriz;
-- `coverage + uncertain_frequency == 1` quando `N > 0`.
-
-## 24.7 Confidence calibration
+## 26.7 Métricas / cohort
 
 Cobrir:
 
+- todos os Outcomes com mesma policy;
+- policies diferentes detectadas;
+- `MixedOutcomePolicyError` antes de agregado misto;
+- confusion matrix por policy;
+- accuracy por policy;
+- precision por policy;
+- recall por policy;
+- coverage/UNCERTAIN por policy;
+- matriz completa e ordem fixa;
+- denominadores zero;
+- `N == 0`;
+- soma da matriz = N;
+- `coverage + uncertain_frequency == 1` quando `N > 0`.
+
+## 26.8 Confidence calibration
+
+Cobrir:
+
+- um único policy_id por report;
+- policies diferentes rejeitadas;
 - cada um dos cinco bins;
 - limites `0.0`, `0.2`, `0.4`, `0.6`, `0.8`, `1.0`;
 - exclusão de `UNCERTAIN`;
@@ -1197,59 +1496,54 @@ Cobrir:
 - bins vazios;
 - `Nc == 0`.
 
-## 24.8 Persistência PostgreSQL futura
+## 26.9 Persistência PostgreSQL futura
 
-Quando autorizada a implementação:
+Quando autorizada:
 
-- migration cria somente estruturas da FASE 7 necessárias;
-- round-trip Outcome;
+- migration cria somente estruturas necessárias da FASE 7;
+- round-trip de policy;
+- unique policy por session no MVP;
+- `bound_at` preservado;
 - Decimal preservado;
-- timestamps preservados;
-- FK obrigatória para Analysis;
-- uma linha por `analysis_id`;
-- mesma gravação idempotente;
-- conflito explícito;
-- imutabilidade;
+- policy idempotente/conflito/imutável;
+- round-trip Outcome com `policy_id`;
+- FK Outcome→Policy e Outcome→Analysis;
+- igualdade Outcome config = Policy config;
+- uma linha Outcome por `analysis_id`;
+- Outcome idempotente/conflito/imutável;
+- `list_outcomes(policy_id)` não mistura cohorts;
 - migration upgrade/downgrade/re-upgrade.
 
-## 24.9 Regressão completa
+## 26.10 Regressão completa
 
-Executar novamente os testes relevantes das FASES 1–6, especialmente:
-
-- Replay gate temporal;
-- isolamento de Ground Truth da visão;
-- Temporal Memory;
-- point-in-time `get_candles_as_of`;
-- FeatureEngine;
-- AnalysisEngine;
-- AnalysisLabService;
-- persistência imutável de Analysis;
-- CI completo, frontend build e Docker Compose conforme pipeline oficial.
+Executar novamente os testes relevantes das FASES 1–6, especialmente Replay gate temporal, isolamento de Ground Truth, Temporal Memory, point-in-time, FeatureEngine, AnalysisEngine, AnalysisLabService, persistência imutável de Analysis, CI completo, frontend build e Docker Compose.
 
 ---
 
-# 25. Resolução dos blockers do Phase Start
+# 27. Resolução dos blockers de especificação
 
 | Blocker | Resolução canônica |
 |---|---|
-| BLOCKER-01 — Outcome indefinido | Seções 3 e 17 definem modelo, campos, invariantes e persistência. |
-| BLOCKER-02 — horizonte indefinido | Seção 4 define referência, H candles futuros e disponibilidade. |
-| BLOCKER-03 — conversão futura para classe | Seção 7 define retorno e UP/DOWN/SIDEWAYS com limites exatos. |
-| BLOCKER-04 — Ground Truth contract | Seção 5 define `GroundTruthProvider` exclusivo da avaliação. |
-| BLOCKER-05 — fronteira temporal | Seções 4 e 6 definem `T`, `E`, horizonte e proibição de alteração histórica. |
-| BLOCKER-06 — UNCERTAIN nas métricas | Seção 8 define abstention e efeito em cada família métrica. |
-| BLOCKER-07 — fórmulas das métricas | Seções 10–15 definem matriz, denominadores e zero denominator. |
-| BLOCKER-08 — confidence calibration | Seção 16 define diagnóstico operacional, bins e fórmula. |
-| BLOCKER-09 — persistência | Seção 17 define tabela conceitual, campos e constraints. |
-| BLOCKER-10 — identidade/idempotência | Seção 18 define `analysis_id`, 1:0..1, idempotência e conflito. |
-| BLOCKER-11 — orquestração/storage | Seções 20–22 definem service, providers e extensões mínimas futuras. |
-| BLOCKER-12 — aceite/testes | Seções 23 e 24 definem critérios verificáveis e test plan. |
+| BLOCKER-01 — Outcome indefinido | Seções 3, 19 e 20. |
+| BLOCKER-02 — horizonte indefinido | Seção 5. |
+| BLOCKER-03 — conversão futura para classe | Seção 8. |
+| BLOCKER-04 — Ground Truth contract | Seção 6. |
+| BLOCKER-05 — fronteira temporal | Seções 5 e 7. |
+| BLOCKER-06 — UNCERTAIN nas métricas | Seções 9 e 15. |
+| BLOCKER-07 — fórmulas das métricas | Seções 11–16. |
+| BLOCKER-08 — confidence calibration | Seção 17. |
+| BLOCKER-09 — persistência | Seções 18 e 19. |
+| BLOCKER-10 — identidade/idempotência | Seção 20. |
+| BLOCKER-11 — orquestração/storage | Seções 22–24. |
+| BLOCKER-12 — aceite/testes | Seções 25 e 26. |
+| BLOCKER-13 — configuração escolhível após futuro | Seções 3.3, 4, 5.2, 18, 22, critérios 36–42 e 46. |
+| BLOCKER-14 — cohorts métricos heterogêneos | Seções 10, 17.2, 23, 24 e critérios 43–45. |
 
-Os blockers de especificação são considerados resolvidos **documentalmente** quando esta especificação estiver integrada ao `main` com CI verde. Isso não equivale a `PHASE_START = READY`; o Phase Start deve ser reexecutado.
+Os blockers são considerados resolvidos documentalmente somente após integração desta especificação ao `main` com CI verde. Isso não equivale a `PHASE_START = READY`; o Phase Start deve ser reexecutado somente quando a governança autorizar essa próxima ação.
 
 ---
 
-# 26. Fora do escopo da FASE 7
+# 28. Fora do escopo da FASE 7
 
 Não implementar nesta fase:
 
@@ -1269,27 +1563,31 @@ Não implementar nesta fase:
 - reinforcement learning;
 - reclassificação retroativa de Analysis;
 - ajuste retroativo de confidence;
-- múltiplos Outcomes/horizontes/configurações por Analysis;
+- múltiplos Outcomes por Analysis;
+- múltiplas policies ou revisões de policy dentro da mesma sessão;
+- múltiplos horizons/configurações por Analysis;
 - tabela persistente de métricas agregadas;
 - fontes externas além do replay controlado do v1.
 
 ---
 
-# 27. Sequência permitida após novo PHASE START
+# 29. Sequência permitida após novo PHASE START
 
 Somente depois de `chartvision-phase-start = READY`, a implementação poderá ser dividida em incrementos pequenos.
 
-A primeira missão técnica deve permanecer limitada aos contratos puros de domínio necessários ao Outcome Evaluation, sem antecipar persistence, API, frontend ou Dashboard salvo autorização específica do Phase Brief.
+A primeira missão técnica deve permanecer limitada aos contratos puros de domínio necessários ao Outcome Evaluation e à policy já especificada, sem antecipar persistence, API, frontend ou Dashboard salvo autorização específica do Phase Brief.
 
 Este documento não cria essa autorização por si só.
 
 ---
 
-# 28. Definition of Done específica
+# 30. Definition of Done específica
 
 A FASE 7 exigirá, no fechamento:
 
 ```text
+policy precommit comprovado
++
 contrato implementado
 +
 Outcome UP/DOWN/SIDEWAYS comprovado
@@ -1300,13 +1598,17 @@ Ground Truth boundary comprovada
 +
 Analysis imutável comprovada
 +
+Policy imutável/idempotente comprovada
++
 Outcome imutável/idempotente comprovado
++
+cohorts métricos homogêneos comprovados
 +
 accuracy/precision/recall/matriz comprovados
 +
 coverage/UNCERTAIN comprovados
 +
-confidence calibration diagnóstica comprovada
+confidence calibration por policy comprovada
 +
 PostgreSQL/migrations comprovados
 +
@@ -1329,62 +1631,59 @@ Somente então a FASE 8 poderá ser autorizada.
 
 ---
 
-# 29. Resumo normativo
+# 31. Resumo normativo
 
 ```text
-ANALYSIS
-Analysis.timestamp = T
-Analysis imutável
-
+SESSION / EXPERIMENTO
         ↓
-
-OUTCOME CONFIG
-H >= 1 candles fechados
+POLICY PRECOMMIT
+policy_id
+H >= 1
 threshold Decimal >= 0
-
+bound_at = relógio lógico autoritativo da sessão
+imutável
+uma policy por sessão no MVP
         ↓
-
+policy.bound_at <= Analysis.timestamp
+        ↓
+ANALYSIS(T)
+usa somente informação <= T
+imutável
+        ↓
+futuro ocorre
+        ↓
+OUTCOME EVALUATION(E)
+carrega policy da sessão
+NÃO recebe configuração arbitrária
+        ↓
 GROUND TRUTH PROVIDER
 reference = último fechado <= T
-+ no máximo H futuros fechados <= evaluation_as_of
-
++ no máximo H futuros fechados <= E
         ↓
-
 HORIZON GATE
 sem H completo → nenhum Outcome
-fim do dataset → nenhum horizonte reduzido
-
         ↓
-
 REALIZED RETURN
 (final_close - reference_close) / reference_close
-Decimal precision 28 / ROUND_HALF_EVEN
-
         ↓
-
 REALIZED STATE
 R > D   → UP
 R < -D  → DOWN
 senão   → SIDEWAYS
-
         ↓
-
 OUTCOME
 identity = analysis_id
+policy_id obrigatório
+config == policy config
 imutável
-1 Analysis → 0..1 Outcome
-
         ↓
-
-METRICS
-rows realized: UP/DOWN/SIDEWAYS
-cols predicted: UP/DOWN/SIDEWAYS/UNCERTAIN
-accuracy / precision / recall
-coverage / uncertain
-confidence alignment diagnostic
-
+METRICS COHORT
+exatamente um policy_id
+mistura → erro explícito
         ↓
-
+CONFIDENCE CALIBRATION
+mesmo policy_id
+        ↓
 FASE 8
 continua bloqueada até PHASE_CLOSE = PASS
 ```
