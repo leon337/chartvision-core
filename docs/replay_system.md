@@ -155,6 +155,58 @@ Reset da mesma reprodução não deve ser reinterpretado silenciosamente como no
 
 O exposure watermark contém somente a fronteira temporal já exposta. Ele não fornece OHLC ao AnalysisEngine, FeatureEngine ou pipeline visual e não modifica o gate de Ground Truth da FASE 1.
 
+### Provenance de sessões que antecedem o tracking
+
+A implementação e persistência atuais da FASE 1 antecedem qualquer exposure watermark persistente. Portanto, uma sessão existente pode ter passado por ciclos de Start/Advance/Reset sem registrar uma fronteira histórica não rebobinável.
+
+Para a futura FASE 7, ausência de watermark salvo **não** pode ser interpretada como ausência de exposição.
+
+Contrato fail-closed:
+
+```text
+sessão preexistente
++ sem prova integral de exposure tracking desde a origem relevante
+→ ExposureTrackingState = LEGACY_UNKNOWN
+```
+
+Sessão `LEGACY_UNKNOWN`:
+
+```text
+X→ OutcomeEvaluationPolicy
+X→ Outcome
+X→ métricas/confidence calibration da FASE 7
+```
+
+É proibido inferir/promover provenance usando `_current_time`, posição atual, `ReplaySnapshot.current_time`, `started_at`, frames, observations, candles, Analysis, timestamps máximos, logs parciais, Ground Truth/dataset completo ou heurísticas.
+
+O fato de um candle existir no dataset não prova se ele foi ou não exposto anteriormente.
+
+Para uma nova sessão criada depois que o tracking estiver operacional desde sua origem relevante:
+
+```text
+ExposureTrackingState = TRACKED
+session_origin_time = origem lógica autoritativa
+session_exposure_watermark = session_origin_time
+```
+
+antes da primeira exposição, e depois:
+
+```text
+W_new = max(W_old, exposed_at)
+```
+
+Reset não altera provenance:
+
+```text
+TRACKED + reset → TRACKED
+LEGACY_UNKNOWN + reset → LEGACY_UNKNOWN
+reset ≠ nova sessão
+```
+
+Se Outcome Evaluation auditável for necessária para uma sessão legada, o caminho canônico do MVP é criar uma **nova sessão/experimento explicitamente** sob tracking já ativo. A sessão legada não é promovida automaticamente.
+
+Essa qualificação complementa D-020 por D-021 sem modificar `ReplaySource.reset()` nem qualquer critério já aprovado da FASE 1.
+
 ## Separação arquitetural
 
 ```text
@@ -190,7 +242,7 @@ Testes específicos cobrem:
 - replay após Reset reproduz a mesma sequência;
 - API mantém determinismo e gate de dados futuros.
 
-Esses testes continuam sendo a autoridade para a semântica funcional da FASE 1. A futura FASE 7 deverá adicionar testes próprios para garantir que seu exposure watermark não diminui quando esses resets válidos da FASE 1 ocorrem.
+Esses testes continuam sendo a autoridade para a semântica funcional da FASE 1. A futura FASE 7 deverá adicionar testes próprios para garantir que seu exposure watermark não diminui quando esses resets válidos da FASE 1 ocorrem e que sessões legadas sem provenance permaneçam `LEGACY_UNKNOWN`.
 
 Frontend:
 - `npm run build` — PASS.
@@ -229,6 +281,8 @@ Durante o desenvolvimento, o run `#26` falhou em `foundation-docker` porque o da
 
 A separação posterior entre cursor rebobinável e exposure watermark não modifica nem invalida esses critérios; ela impede apenas que uma fase posterior atribua ao cursor uma semântica experimental que ele nunca teve.
 
+A regra posterior `LEGACY_UNKNOWN` também não altera o comportamento funcional da FASE 1; ela define somente como a futura FASE 7 deve tratar sessões cuja provenance histórica não pode ser provada.
+
 ## Fora do escopo preservado
 
 Não foram implementados:
@@ -241,6 +295,7 @@ Não foram implementados:
 - AnalysisEngine;
 - OutcomeEvaluator;
 - exposure watermark persistente;
+- ExposureTrackingState;
 - OutcomeEvaluationPolicy;
 - integrações externas;
 - execução de ordens ou dinheiro real.
@@ -252,11 +307,12 @@ Não foram implementados:
 3. O renderer prioriza simplicidade do MVP, não otimização para datasets grandes.
 4. Nenhuma observação visual é realizada ainda; isso pertence exclusivamente à FASE 2.
 5. O cursor/`current_time` da FASE 1 é intencionalmente rebobinável por Reset e não deve ser usado por fases posteriores como prova histórica de não exposição.
+6. Sessões criadas antes do tracking confiável da FASE 7 não possuem, no estado atual, prova integral de exposure provenance e devem ser tratadas conservadoramente pela futura FASE 7.
 
 ## Handoff
 
 A FASE 1 entrega um gráfico controlado e determinístico que pode servir como fonte visual para a FASE 2.
 
-A semântica funcional da FASE 1 permanece fechada/PASS. Consumidores posteriores que precisem auditar exposição através de resets devem manter estado próprio não rebobinável conforme a decisão de sua fase, sem alterar `ReplaySource.reset()` retroativamente.
+A semântica funcional da FASE 1 permanece fechada/PASS. Consumidores posteriores que precisem auditar exposição através de resets devem manter estado próprio não rebobinável e fail-closed conforme a decisão de sua fase, sem alterar `ReplaySource.reset()` retroativamente.
 
 A próxima fase **pode ser aberta**, mas não é iniciada por este documento. A FASE 2 deve começar em novo chat/sessão e executar `chartvision-phase-start` antes de qualquer implementação.

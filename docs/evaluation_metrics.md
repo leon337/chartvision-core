@@ -49,6 +49,7 @@ Esse documento é a autoridade para:
 - definição de `Outcome`, `OutcomeConfig` e `OutcomeEvaluationPolicy`;
 - precommit temporal da configuração;
 - separação entre replay cursor rebobinável e session exposure watermark monotônico;
+- provenance de exposição da sessão (`TRACKED` / `LEGACY_UNKNOWN`);
 - identidade e imutabilidade da policy;
 - horizonte temporal;
 - Ground Truth boundary;
@@ -97,6 +98,32 @@ no instante do registro. Assim, observar futuro até `W`, resetar o replay e reg
 
 O exposure watermark contém somente metadado temporal de auditoria. Ele não fornece OHLC, features ou realized state ao módulo de Analysis.
 
+### Provenance da sessão como precondição
+
+O watermark só é prova histórica confiável quando exposure tracking esteve ativo desde a origem experimental relevante da sessão.
+
+A FASE 7 distingue:
+
+```text
+TRACKED
+LEGACY_UNKNOWN
+```
+
+Sessão `TRACKED` possui origin/watermark confiáveis e pode registrar policy sujeito aos demais gates.
+
+Sessão `LEGACY_UNKNOWN` representa provenance integral não comprovada e falha fechada:
+
+```text
+LEGACY_UNKNOWN
+→ nenhuma policy válida
+→ nenhum Outcome válido
+→ nenhum par (Analysis, Outcome) para métricas
+```
+
+Ausência de watermark histórico não equivale a ausência de exposição. Sessões preexistentes sem prova integral não podem ser inicializadas automaticamente como `TRACKED` com `watermark = session_origin_time`.
+
+Cursor, timestamps, frames, observations, candles, Analysis, logs parciais ou Ground Truth não podem ser usados para inventar/promover provenance. Se Outcome Evaluation auditável for necessária, o caminho canônico do MVP é criar uma nova sessão/experimento sob tracking ativo desde a origem.
+
 ### Classes
 
 Predição/Analysis:
@@ -142,7 +169,14 @@ Contrato canônico:
 Metrics Cohort = exatamente um OutcomeEvaluationPolicy.policy_id
 ```
 
-Portanto, confusion matrix, accuracy, precision, recall, coverage, uncertain frequency e confidence calibration não podem combinar Outcomes de policies diferentes.
+Precondição adicional:
+
+```text
+policy válida
+→ session.exposure_tracking_state == TRACKED
+```
+
+Portanto, confusion matrix, accuracy, precision, recall, coverage, uncertain frequency e confidence calibration não podem combinar Outcomes de policies diferentes e não recebem Outcomes de sessão `LEGACY_UNKNOWN`, pois tal sessão não pode produzir policy/Outcome válido.
 
 Cada relatório deve identificar a policy/configuração do cohort, incluindo pelo menos:
 
@@ -154,9 +188,9 @@ realized_return_threshold
 
 Entrada contendo Outcomes de policies diferentes deve falhar explicitamente antes de qualquer agregação, ou ser previamente separada em relatórios independentes. O MVP canônico escolhe falha explícita para uma entrada mista; não existe soma silenciosa de cohorts heterogêneos.
 
-Confidence calibration obedece à mesma fronteira: os cinco bins e o `weighted_alignment_gap` são calculados dentro de um único `policy_id`.
+Confidence calibration obedece à mesma fronteira: os cinco bins e o `weighted_alignment_gap` são calculados dentro de um único `policy_id` válido de sessão `TRACKED`.
 
-A correção de exposure watermark não altera esse contrato. `BLOCKER-14` permanece resolvido.
+A correção de provenance **não altera** esse contrato. `BLOCKER-14` permanece resolvido.
 
 ## Regra contra future leakage e hindsight bias
 
@@ -168,12 +202,14 @@ Também é proibido observar o futuro e depois escolher retroativamente `horizon
 
 `reset` do replay não reabre essa possibilidade: o cursor pode voltar, mas a fronteira de exposição experimental não diminui.
 
+Também é proibido usar Ground Truth ou histórico parcial para reconstruir retrospectivamente exposure provenance e tornar uma sessão legada elegível.
+
 ## Interpretação
 
 O objetivo do v1 é medir:
 1. qualidade da percepção;
 2. integridade da memória temporal;
 3. consistência da classificação;
-4. capacidade de verificar resultados sob target experimental previamente comprometido e temporalmente auditável.
+4. capacidade de verificar resultados sob target experimental previamente comprometido, provenance confiável e fronteira temporal auditável.
 
 Rentabilidade financeira não é critério de sucesso do v1.
