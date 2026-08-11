@@ -77,6 +77,12 @@ A FASE 7 não reclassifica o passado. Ela adiciona uma avaliação posterior vin
 14. Dados ausentes não são inventados.
 15. Métricas agregadas somente são válidas dentro de um cohort homogêneo de uma única policy.
 16. O domínio de avaliação deve permanecer determinístico e independente de infraestrutura.
+17. Ausência de histórico de exposição **não** equivale a ausência de exposição.
+18. O watermark só é prova histórica confiável quando exposure tracking esteve ativo desde a origem experimental relevante da sessão.
+19. Sessões sem provenance integral confiável falham de forma conservadora como `LEGACY_UNKNOWN` e são inelegíveis para Outcome Evaluation.
+20. `LEGACY_UNKNOWN` não pode ser promovida automaticamente para `TRACKED` no MVP.
+21. Reset não cria provenance, não promove sessão legada e não cria nova sessão/experimento.
+22. Ground Truth, cursor, frames, observations, candles, Analysis, timestamps máximos, logs parciais ou heurísticas não podem reconstruir retrospectivamente exposure provenance.
 
 ---
 
@@ -197,6 +203,85 @@ session_exposure_watermark = session_origin_time
 
 Esse baseline não significa que um OHLC ou candle futuro foi fornecido à Analysis; ele apenas estabelece a menor fronteira temporal auditável possível da sessão e garante binding determinístico desde o início.
 
+**Qualificação de provenance:** esse baseline somente é confiável para uma sessão cujo exposure tracking esteja operacional desde a origem experimental relevante, antes de qualquer exposição. Ele **não** pode ser atribuído retroativamente a uma sessão preexistente apenas porque nenhum watermark histórico está salvo.
+
+### Exposure Tracking State e sessões legadas
+
+A futura persistência da FASE 7 deve representar semanticamente um estado explícito equivalente a:
+
+```text
+ExposureTrackingState
+
+TRACKED
+LEGACY_UNKNOWN
+```
+
+`TRACKED` significa que:
+
+- exposure tracking esteve ativo desde a origem experimental relevante;
+- `session_origin_time` é conhecido e confiável;
+- `session_exposure_watermark` é conhecido e confiável;
+- toda exposição posterior participa da atualização monotônica do watermark;
+- a sessão pode registrar `OutcomeEvaluationPolicy`, sujeito aos demais contratos.
+
+Invariantes:
+
+```text
+TRACKED
+→ session_origin_time conhecido
+→ session_exposure_watermark conhecido
+→ session_exposure_watermark >= session_origin_time
+```
+
+`LEGACY_UNKNOWN` significa que a sessão preexiste ao tracking confiável **ou** que não existe prova suficiente de que todas as exposições anteriores foram observadas pelo mecanismo de watermark.
+
+Consequências obrigatórias:
+
+```text
+LEGACY_UNKNOWN
+→ não registrar OutcomeEvaluationPolicy
+→ não produzir Outcome
+→ não participar de métricas/confidence calibration da FASE 7
+```
+
+Regra fail-closed:
+
+```text
+exposure provenance desconhecida
+→ Outcome Evaluation inelegível
+```
+
+Nunca:
+
+```text
+exposure provenance desconhecida
+→ assumir watermark = session_origin_time
+```
+
+Sessões existentes antes da introdução do tracking podem ter executado ciclos de avanço/reset sem memória de exposição persistida. Ausência de watermark histórico **não prova** que nenhum instante posterior foi visto.
+
+No MVP é proibido promover `LEGACY_UNKNOWN` para `TRACKED` inferindo provenance a partir de:
+
+- posição/cursor atual;
+- `started_at` isolado;
+- frames ou observations;
+- candles persistidos;
+- Analysis existentes;
+- maior timestamp conhecido;
+- logs parciais;
+- Ground Truth/dataset completo;
+- heurísticas.
+
+Esses elementos não provam qual futuro foi efetivamente exposto.
+
+No MVP não existe operação automática:
+
+```text
+LEGACY_UNKNOWN → TRACKED
+```
+
+Se Outcome Evaluation auditável for necessária, o caminho canônico é criar **nova sessão/experimento explicitamente** sob exposure tracking já ativo desde sua origem. Qualquer mecanismo futuro de certificação/promote de legacy é `FUTURE` e exige nova decisão arquitetural.
+
 ### Reset, pause/resume e novos ciclos
 
 `reset` pode rebobinar o cursor operacional, mas não a memória de exposição:
@@ -237,6 +322,15 @@ Também:
 
 `reset` operacional **não cria silenciosamente uma nova sessão/experimento** e não reabre a fronteira experimental de precommit.
 
+Para provenance:
+
+```text
+TRACKED + reset → continua TRACKED, mesmo watermark histórico
+LEGACY_UNKNOWN + reset → continua LEGACY_UNKNOWN
+```
+
+Reset não transforma uma sessão legada em tracked.
+
 ## 3.4 `OutcomeEvaluationPolicy`
 
 `OutcomeEvaluationPolicy` representa o precommit auditável da definição de Outcome para uma sessão/experimento.
@@ -257,6 +351,24 @@ Semântica:
 - `session_id` determina o experimento ao qual ela pertence;
 - horizonte e threshold formam a configuração imutável comprometida;
 - `bound_at` é uma cópia imutável da fronteira de exposição não rebobinável da sessão no instante em que a policy foi registrada.
+
+### Gate de provenance antes do registro
+
+Antes de registrar a policy, a futura orquestração deve comprovar:
+
+```text
+session.exposure_tracking_state == TRACKED
+```
+
+Se a sessão for `LEGACY_UNKNOWN`, o registro deve falhar explicitamente, sem policy parcial.
+
+Status/erro conceitual:
+
+```text
+EXPOSURE_HISTORY_UNKNOWN
+```
+
+O nome físico pode variar, mas a falha deve ser distinta e auditável.
 
 ### Regra de captura de `bound_at`
 
@@ -355,6 +467,8 @@ Analysis T = 10:40
 
 Uma Analysis anterior à fronteira máxima já exposta **não pode receber Outcome retroativamente** escolhendo horizonte/threshold depois que seu futuro já foi observado.
 
+Uma Analysis historicamente válida em sessão `LEGACY_UNKNOWN` permanece válida e imutável, mas é inelegível para Outcome porque a sessão não pode produzir uma policy válida.
+
 ### Imutabilidade e idempotência
 
 Policy é append-only no MVP. Não existe UPDATE semântico.
@@ -435,7 +549,8 @@ No MVP, `analysis_id` permanece simultaneamente:
 17. `realized_state` deve corresponder exatamente à regra de classificação realizada;
 18. `evidence` deve ser determinística, ordenada e auditável;
 19. nenhum campo do Outcome pode provocar alteração da `Analysis` vinculada;
-20. policy e Outcome não podem divergir silenciosamente em identidade/configuração.
+20. policy e Outcome não podem divergir silenciosamente em identidade/configuração;
+21. a policy vinculada deve pertencer a uma sessão `TRACKED`; sessão `LEGACY_UNKNOWN` não pode produzir Outcome.
 
 ### Evidence
 
@@ -469,7 +584,10 @@ Cardinalidade canônica do MVP:
 Session 1
    │
    ├── replay cursor (rebobinável)
-   └── exposure watermark (monotônico)
+   ├── exposure_tracking_state
+   │      ├── TRACKED
+   │      └── LEGACY_UNKNOWN → Outcome Evaluation bloqueada
+   └── exposure watermark (monotônico quando TRACKED)
               ↓
 0..1 OutcomeEvaluationPolicy
               ↓
@@ -520,7 +638,7 @@ Para a policy:
 policy.bound_at = B
 ```
 
-Para a sessão:
+Para a sessão `TRACKED`:
 
 ```text
 session_exposure_watermark = W
@@ -541,6 +659,8 @@ W nunca diminui durante a vida da sessão
 ```
 
 `T` continua sendo o timestamp da Analysis; `E` é o corte de avaliação. `B` não vem de `datetime.now()` nem do cursor rebobinado: é a cópia do watermark autoritativo da sessão no compromisso.
+
+Uma sessão `LEGACY_UNKNOWN` não possui prova temporal suficiente para registrar policy; portanto não entra nessa relação `B <= T <= E` até que uma nova sessão/experimento TRACKED seja explicitamente criada.
 
 ## 5.2 Precommit e hindsight bias
 
@@ -577,6 +697,17 @@ Outcome
 O reset não reduz W. Portanto a nova policy, se ainda não existir policy na sessão, captura `B = W` e a Analysis anterior permanece inelegível.
 
 Se a sessão não possuía policy elegível para `T`, a Analysis não se torna retroativamente elegível por reset ou por criação posterior de policy.
+
+Também é proibido:
+
+```text
+sessão preexistente sem exposure history confiável
+→ ausência de watermark persistido
+→ assumir W = session_origin_time
+→ registrar policy
+```
+
+Esse caso deve falhar como `LEGACY_UNKNOWN` / `EXPOSURE_HISTORY_UNKNOWN`.
 
 ## 5.3 Candle de referência
 
@@ -621,6 +752,7 @@ A orquestração deve representar explicitamente pelo menos:
 ```text
 AVAILABLE
 PENDING_HORIZON
+EXPOSURE_HISTORY_UNKNOWN
 UNAVAILABLE_POLICY
 POLICY_BOUND_TOO_LATE
 UNAVAILABLE_REFERENCE
@@ -644,9 +776,22 @@ nenhum Outcome
 operação pode ser repetida posteriormente
 ```
 
+### `EXPOSURE_HISTORY_UNKNOWN`
+
+A sessão é `LEGACY_UNKNOWN` ou não existe prova suficiente de que exposure tracking esteve ativo desde a origem experimental relevante.
+
+Resultado:
+
+```text
+nenhuma OutcomeEvaluationPolicy nova
+nenhum Outcome
+nenhuma inclusão em métricas/confidence calibration
+Analysis histórica permanece válida e imutável
+```
+
 ### `UNAVAILABLE_POLICY`
 
-Não existe policy para a sessão.
+Não existe policy para a sessão TRACKED.
 
 Resultado:
 
@@ -689,7 +834,7 @@ nenhum Outcome
 horizonte não é reduzido
 ```
 
-Análises sem Outcome por ausência/policy tardia, indisponibilidade de referência, horizonte pendente ou fim de dataset não entram nas métricas de análises avaliadas.
+Análises sem Outcome por ausência/policy tardia, exposure history desconhecida, indisponibilidade de referência, horizonte pendente ou fim de dataset não entram nas métricas de análises avaliadas.
 
 ## 5.6 Entradas temporais inválidas
 
@@ -705,7 +850,9 @@ Devem falhar explicitamente, sem persistência:
 - tentativa de usar policy tardia para aquela Analysis;
 - tentativa de fornecer configuração ad hoc na avaliação;
 - tentativa de diminuir o exposure watermark;
-- tentativa de usar cursor rebobinado como substituto de watermark para registrar policy.
+- tentativa de usar cursor rebobinado como substituto de watermark para registrar policy;
+- tentativa de registrar policy em sessão `LEGACY_UNKNOWN`;
+- tentativa de inventar/promover provenance a partir de histórico parcial ou Ground Truth.
 
 ---
 
@@ -771,12 +918,14 @@ Ele não fornece:
 
 Seu único papel nesta fase é auditar a fronteira temporal de precommit e impedir backdating por reset.
 
+Ground Truth também **não** pode ser usado para reconstruir exposure provenance. O fato de um candle existir no dataset não prova se ele foi ou não exposto anteriormente ao operador/experimento.
+
 ## 6.3 Fluxos permitidos e proibidos
 
 Permitido:
 
 ```text
-Session exposure watermark
+Session TRACKED exposure watermark
         ↓
 OutcomeEvaluationPolicy
         ↓
@@ -825,6 +974,12 @@ cursor rebobinado
 backdate policy.bound_at
 ```
 
+```text
+Ground Truth / dados históricos parciais
+    ↓
+reconstruir ou promover exposure provenance legada
+```
+
 ---
 
 # 7. Fronteira contra future leakage e hindsight bias
@@ -832,6 +987,8 @@ backdate policy.bound_at
 A distinção normativa é:
 
 ```text
+SESSION TRACKED
+        ↓
 SESSION EXPOSURE WATERMARK W
 monotônico
 não rebobina com reset
@@ -874,7 +1031,8 @@ Isso **não pode** alterar:
 - horizonte;
 - threshold;
 - confidence histórica;
-- o watermark para um valor inferior depois de reset.
+- o watermark para um valor inferior depois de reset;
+- `LEGACY_UNKNOWN` para `TRACKED` por inferência automática.
 
 Um teste de regressão da FASE 6 deve continuar comprovando que adicionar futuro não altera `Analysis(T)`.
 
@@ -1037,6 +1195,15 @@ Análises sem Outcome não entram em `N`.
 
 A introdução do exposure watermark **não altera** a fronteira de cohort. `BLOCKER-14` permanece resolvido pelo requisito de um único `policy_id` por relatório.
 
+Precondição adicional de provenance:
+
+```text
+policy válida para métricas
+→ session.exposure_tracking_state == TRACKED
+```
+
+Sessão `LEGACY_UNKNOWN` não gera policy/Outcome válido e, portanto, não produz pares para o cohort.
+
 ---
 
 # 11. Confusion matrix
@@ -1192,6 +1359,8 @@ Defina:
 Nc = quantidade de pares não-UNCERTAIN do mesmo policy_id
 ```
 
+A policy desse cohort deve pertencer a sessão `TRACKED`; sessão `LEGACY_UNKNOWN` não pode produzir input válido para confidence calibration.
+
 ## 17.3 Conversão e bins
 
 ```text
@@ -1265,13 +1434,15 @@ A implementação futura deve representar semanticamente, em `sessions` ou regis
 session_id
 session_origin_time
 session_exposure_watermark
+exposure_tracking_state
 ```
 
 Invariantes de persistência:
 
-- `session_origin_time` é imutável e timezone-aware;
-- `session_exposure_watermark` é timezone-aware;
-- `session_exposure_watermark >= session_origin_time`;
+- `exposure_tracking_state` distingue no mínimo `TRACKED` de `LEGACY_UNKNOWN`;
+- `TRACKED` exige `session_origin_time` confiável e timezone-aware;
+- `TRACKED` exige `session_exposure_watermark` confiável e timezone-aware;
+- em `TRACKED`, `session_exposure_watermark >= session_origin_time`;
 - atualizações são monotônicas: somente `max(W_old, exposed_at)` é permitido;
 - não existe operação de redução de watermark;
 - reset do replay não altera watermark;
@@ -1279,7 +1450,30 @@ Invariantes de persistência:
 - reexecução abaixo do máximo anterior não altera watermark;
 - nova exposição acima do máximo anterior aumenta watermark;
 - o estado sobrevive a reinvocação de serviço e, quando a persistência da FASE 7 for implementada, a restart de processo;
-- sessões diferentes possuem watermark independente.
+- sessões diferentes possuem provenance/watermark independentes;
+- `LEGACY_UNKNOWN` não pode ter um watermark histórico inventado para simular tracking anterior.
+
+### Semântica da futura migration
+
+Ao introduzir a persistência da FASE 7:
+
+```text
+rows de sessions preexistentes
++ sem prova integral de exposure tracking desde a origem
+→ exposure_tracking_state = LEGACY_UNKNOWN
+```
+
+É proibido um backfill equivalente a:
+
+```text
+UPDATE sessions
+SET exposure_tracking_state = TRACKED,
+    session_exposure_watermark = session_origin_time
+```
+
+para todas as sessões existentes.
+
+Novas sessões só podem nascer `TRACKED` quando o lifecycle que inicializa e atualiza o watermark estiver ativo **antes de qualquer exposição**.
 
 A persistência deve permitir auditar que a policy capturou a fronteira vigente no compromisso. O registro da policy deve usar a versão autoritativa/durável do watermark, não uma cópia stale do cursor em memória.
 
@@ -1315,7 +1509,8 @@ Constraints conceituais mínimas:
 - `horizon_closed_candles >= 1`;
 - `realized_return_threshold >= 0` e finito;
 - `bound_at` timezone-aware na borda de domínio;
-- valores Decimal persistidos como numéricos exatos, não `float`.
+- valores Decimal persistidos como numéricos exatos, não `float`;
+- a sessão referenciada deve possuir provenance `TRACKED`.
 
 `bound_at` deve ser capturado da fronteira de exposição autoritativa e não rebobinável da sessão no registro. É proibido usar `_current_time`/cursor rebobinado como prova exclusiva de precommit.
 
@@ -1375,6 +1570,7 @@ Constraints mínimas:
 Validações cruzadas obrigatórias na camada de domínio/orquestração e integração:
 
 ```text
+session.exposure_tracking_state == TRACKED
 policy.session_id == Analysis.session_id
 policy.bound_at <= Analysis.timestamp
 Outcome.policy_id == policy.policy_id
@@ -1484,17 +1680,19 @@ Responsabilidades:
 
 1. carregar `Analysis` pelo `StorageProvider`;
 2. rejeitar Analysis inexistente;
-3. carregar a policy única por `Analysis.session_id`;
-4. retornar `UNAVAILABLE_POLICY` se não existir;
-5. validar `policy.bound_at <= Analysis.timestamp`;
-6. retornar/rejeitar `POLICY_BOUND_TOO_LATE` se a policy for tardia;
-7. obter horizonte/threshold exclusivamente da policy;
-8. validar `evaluation_as_of`;
-9. consultar `GroundTruthProvider.get_evaluation_window(...)` com o horizonte comprometido;
-10. interpretar estados de disponibilidade;
-11. chamar `OutcomeEvaluator` somente quando `AVAILABLE`;
-12. persistir Outcome imutável;
-13. retornar Outcome/status sem modificar Analysis ou policy.
+3. carregar o estado de provenance da sessão da Analysis;
+4. retornar/rejeitar `EXPOSURE_HISTORY_UNKNOWN` se a sessão não for `TRACKED`;
+5. carregar a policy única por `Analysis.session_id`;
+6. retornar `UNAVAILABLE_POLICY` se não existir;
+7. validar `policy.bound_at <= Analysis.timestamp`;
+8. retornar/rejeitar `POLICY_BOUND_TOO_LATE` se a policy for tardia;
+9. obter horizonte/threshold exclusivamente da policy;
+10. validar `evaluation_as_of`;
+11. consultar `GroundTruthProvider.get_evaluation_window(...)` com o horizonte comprometido;
+12. interpretar estados de disponibilidade;
+13. chamar `OutcomeEvaluator` somente quando `AVAILABLE`;
+14. persistir Outcome imutável;
+15. retornar Outcome/status sem modificar Analysis ou policy.
 
 O serviço pode depender de `StorageProvider` e `GroundTruthProvider`. `OutcomeEvaluator` não depende deles.
 
@@ -1513,11 +1711,13 @@ register_outcome_evaluation_policy(
 No registro:
 
 1. carregar o estado auditável da sessão;
-2. obter `session_exposure_watermark` autoritativo e durável;
-3. capturar `bound_at = session_exposure_watermark`;
-4. nunca aceitar `bound_at` fornecido pelo chamador;
-5. nunca substituir watermark pelo `replay_cursor_time` corrente;
-6. persistir policy imutável sob ordenação consistente com exposições da mesma sessão.
+2. exigir `exposure_tracking_state == TRACKED`;
+3. se `LEGACY_UNKNOWN`, falhar com `EXPOSURE_HISTORY_UNKNOWN` sem policy parcial;
+4. obter `session_exposure_watermark` autoritativo e durável;
+5. capturar `bound_at = session_exposure_watermark`;
+6. nunca aceitar `bound_at` fornecido pelo chamador;
+7. nunca substituir watermark pelo `replay_cursor_time` corrente;
+8. persistir policy imutável sob ordenação consistente com exposições da mesma sessão.
 
 ### Registro/avanço da exposição
 
@@ -1530,7 +1730,7 @@ record_session_exposure(session_id, exposed_at)
 
 Não existe operação semântica `rewind_session_exposure_watermark`.
 
-O reset da FASE 1 continua sendo apenas reset operacional do replay cursor.
+O reset da FASE 1 continua sendo apenas reset operacional do replay cursor e não promove `LEGACY_UNKNOWN` para `TRACKED`.
 
 ---
 
@@ -1551,11 +1751,14 @@ get_outcome(analysis_id) -> Outcome | None
 list_outcomes(policy_id) -> tuple[Outcome, ...]
 ```
 
+`get_session_exposure_state(session_id)` deve distinguir `TRACKED` de `LEGACY_UNKNOWN` e nunca sintetizar provenance a partir de dados históricos parciais.
+
 O nome concreto do contrato de exposição pode variar no incremento autorizado, mas deve preservar origem determinística, watermark monotônico e durabilidade suficiente para impedir backdating após reset/restart.
 
 Erros conceituais:
 
 ```text
+EXPOSURE_HISTORY_UNKNOWN
 OutcomeEvaluationPolicyConflictError
 OutcomeConflictError
 ```
@@ -1603,6 +1806,8 @@ confidence_calibration
 Entrada com policies incompatíveis deve falhar com erro explícito antes de produzir resultados parciais.
 
 O exposure watermark não participa das fórmulas métricas; ele apenas garante que o target do cohort foi comprometido sob uma fronteira temporal auditável.
+
+Somente policies pertencentes a sessões `TRACKED` podem gerar Outcomes que entram nesse contrato. `LEGACY_UNKNOWN` não produz cohort válido.
 
 ---
 
@@ -1672,7 +1877,24 @@ A FASE 7 somente poderá ser encerrada quando houver evidência automatizada de 
 60. estado necessário do exposure watermark realiza round-trip/auditoria sem regressão e sobrevive conceitualmente a reinvocação/restart quando a persistência da FASE 7 existir;
 61. policy continua imutável e única por sessão através de reset e múltiplos ciclos de replay;
 62. Outcome continua vinculado à mesma policy e configuração independentemente de reset posterior;
-63. cohorts métricos por `policy_id`, inclusive confidence calibration, permanecem homogêneos e não são alterados pelo mecanismo de watermark.
+63. cohorts métricos por `policy_id`, inclusive confidence calibration, permanecem homogêneos e não são alterados pelo mecanismo de watermark;
+64. sessão nova sob exposure tracking nasce `TRACKED` somente quando o tracking esteve ativo desde sua origem experimental relevante;
+65. sessão `TRACKED` possui `session_origin_time` determinístico/timezone-aware;
+66. sessão `TRACKED` possui watermark confiável, monotônico e `>= session_origin_time`;
+67. sessão preexistente sem provenance integral confiável é `LEGACY_UNKNOWN`;
+68. futura migration não inicializa automaticamente sessão legada com `watermark = session_origin_time` nem a marca `TRACKED` sem evidência;
+69. `LEGACY_UNKNOWN` não pode registrar `OutcomeEvaluationPolicy` e retorna erro/status explícito sem policy parcial;
+70. `LEGACY_UNKNOWN` não pode produzir Outcome;
+71. Analysis existente em sessão legada permanece válida e imutável, porém inelegível para Outcome;
+72. nova sessão/experimento explicitamente criada sob tracking ativo possui provenance independente da sessão legada;
+73. reset não transforma `LEGACY_UNKNOWN` em `TRACKED`;
+74. reset não cria nova sessão/experimento;
+75. cursor, timestamps, frames, observations, candles, Analysis, logs parciais, Ground Truth ou heurísticas não podem inventar/promover provenance;
+76. policy de sessão `TRACKED` continua capturando `bound_at` do watermark autoritativo;
+77. `T < W` continua inelegível para policy válida em sessão `TRACKED`;
+78. cohorts continuam exatamente por um `policy_id` e excluem qualquer caminho sem policy válida;
+79. confidence calibration continua dentro de policy homogênea válida;
+80. nenhuma funcionalidade da FASE 8/Dashboard é introduzida pela provenance.
 
 Cada critério deve possuir teste automatizado ou evidência automatizada equivalente no fechamento formal.
 
@@ -1744,7 +1966,7 @@ advance até Y onde Y > W
 
 Mais testes:
 
-- policy antes de qualquer exposição usa origem determinística da sessão;
+- policy antes de qualquer exposição usa origem determinística da sessão **somente para sessão TRACKED desde a origem**;
 - policy depois de exposição captura o máximo já exposto;
 - cursor pode voltar ao estado inicial sem reduzir watermark;
 - reset repetido não reduz watermark;
@@ -1784,6 +2006,7 @@ Com providers fakes/determinísticos:
 
 - serviço não aceita OutcomeConfig arbitrário na avaliação;
 - serviço carrega policy pela sessão da Analysis;
+- `EXPOSURE_HISTORY_UNKNOWN` para sessão sem provenance TRACKED;
 - `UNAVAILABLE_POLICY`;
 - `POLICY_BOUND_TOO_LATE`;
 - última referência fechada `<= T`;
@@ -1807,7 +2030,8 @@ Teste arquitetural deve provar que:
 - Outcome Evaluation acessa Ground Truth apenas pelo contrato autorizado;
 - policy não fornece OHLC/Ground Truth ao módulo de Analysis;
 - exposure watermark não é fonte de OHLC/features;
-- reset do ReplaySource não é interpretado como reset do histórico experimental de exposição.
+- reset do ReplaySource não é interpretado como reset do histórico experimental de exposição;
+- Ground Truth não é usado para reconstruir/promover provenance de sessão legada.
 
 ## 27.7 Regressão anti-future-leakage
 
@@ -1853,7 +2077,8 @@ Cobrir:
 - `N == 0`;
 - soma da matriz = N;
 - `coverage + uncertain_frequency == 1` quando `N > 0`;
-- reset/watermark não altera `policy_id` nem permite mistura de cohort.
+- reset/watermark não altera `policy_id` nem permite mistura de cohort;
+- `LEGACY_UNKNOWN` não produz pares métricos válidos.
 
 ## 27.9 Confidence calibration
 
@@ -1870,7 +2095,8 @@ Cobrir:
 - weighted alignment gap;
 - bins vazios;
 - `Nc == 0`;
-- reset/watermark não muda a policy do relatório.
+- reset/watermark não muda a policy do relatório;
+- sessão `LEGACY_UNKNOWN` não produz calibration válida.
 
 ## 27.10 Persistência PostgreSQL futura
 
@@ -1915,6 +2141,81 @@ Executar novamente os testes relevantes das FASES 1–6, especialmente:
 
 A FASE 1 deve continuar comprovando sua semântica funcional de reset. O novo teste de watermark pertence à implementação futura da FASE 7 e não redefine retroativamente `ReplaySource.reset()`.
 
+## 27.12 Sessão legada na migration
+
+```text
+given:
+sessão já existente antes da migration
+sem exposure provenance confiável
+
+when:
+persistência de provenance da FASE 7 é introduzida
+
+then:
+state = LEGACY_UNKNOWN
+policy registration = EXPOSURE_HISTORY_UNKNOWN / REJECTED
+Outcome = nenhum
+```
+
+## 27.13 Proibição de backfill ingênuo
+
+```text
+legacy session
++ started_at/origin disponível
+→ NÃO assumir watermark = origin
+→ NÃO marcar TRACKED
+```
+
+Testar que cursor, frames, observations, candles, Analysis, timestamps máximos, logs parciais e Ground Truth não promovem a sessão.
+
+## 27.14 Nova sessão TRACKED
+
+```text
+create nova session após tracking operacional
+→ TRACKED
+→ session_origin_time determinístico
+→ watermark = origin antes da primeira exposição
+```
+
+Depois:
+
+```text
+advance → watermark aumenta
+reset → watermark permanece
+```
+
+## 27.15 Analysis legada
+
+```text
+Analysis existente
++ session LEGACY_UNKNOWN
+→ Analysis preservada/imutável
+→ Outcome Evaluation rejeitada
+→ nenhum Outcome
+```
+
+## 27.16 Nova sessão independente
+
+```text
+legacy session A = LEGACY_UNKNOWN
+nova session B = TRACKED
+→ B pode possuir policy
+→ A continua inelegível
+→ provenance/watermark de B são independentes de A
+```
+
+## 27.17 Regressão de provenance
+
+Manter conjuntamente:
+
+- FASE 1 reset;
+- FASE 6 anti-future-leakage;
+- policy precommit;
+- reset loophole;
+- migration fail-closed para legacy;
+- metric cohorts;
+- confidence calibration.
+
 ---
 
 # 28. Resolução dos blockers de especificação
@@ -1933,8 +2234,10 @@ A FASE 1 deve continuar comprovando sua semântica funcional de reset. O novo te
 | BLOCKER-10 — identidade/idempotência | Seção 21. |
 | BLOCKER-11 — orquestração/storage | Seções 23–25. |
 | BLOCKER-12 — aceite/testes | Seções 26 e 27. |
-| BLOCKER-13 — configuração escolhível após futuro / binding rebobinável | **REABERTO pelo P1 do PR #11 e corrigido** pelas Seções 3.3–3.4, 5.2, 7, 18–19, 23–24, critérios 36–42 e 47–62, e testes 27.2–27.7/27.10. `bound_at` usa exposure watermark não rebobinável; reset não permite backdating. |
-| BLOCKER-14 — cohorts métricos heterogêneos | Permanece resolvido pelas Seções 10, 17.2, 24–25 e critérios 43–45/63. O mecanismo de watermark não altera a regra de um único `policy_id` por cohort. |
+| BLOCKER-13 — configuração escolhível após futuro / binding rebobinável / provenance legada | **REABERTO pelo P1 do PR #11 e refinado pelo P1 do PR #12**. Seções 3.3–3.4, 5.2, 7, 18–19, 23–24, critérios 36–42 e 47–80 e testes 27.2–27.17 exigem watermark não rebobinável **e** provenance `TRACKED`; sessões sem prova integral são `LEGACY_UNKNOWN` e falham fechadas. |
+| BLOCKER-14 — cohorts métricos heterogêneos | Permanece resolvido pelas Seções 10, 17.2, 24–25 e critérios 43–45/63/78–79. O mecanismo de provenance não altera a regra de um único `policy_id` por cohort. |
+
+O finding P1 do PR #12 `Quarantine sessions that predate the watermark` é tratado materialmente pelo estado `LEGACY_UNKNOWN`, pelo gate de policy, pela migration fail-closed e pela proibição de reconstrução heurística de provenance.
 
 Os blockers são considerados resolvidos documentalmente somente após integração desta especificação ao `main` com CI verde. Isso não equivale a `PHASE_START = READY`; o Phase Start deve ser reexecutado somente quando a governança autorizar essa próxima ação.
 
@@ -1963,6 +2266,8 @@ Não implementar nesta fase:
 - múltiplos Outcomes por Analysis;
 - múltiplas policies ou revisões de policy dentro da mesma sessão;
 - múltiplos horizons/configurações por Analysis;
+- certificação/promote automático de sessão legada;
+- reconstrução heurística de exposure provenance;
 - tabela persistente de métricas agregadas;
 - fontes externas além do replay controlado do v1.
 
@@ -1983,9 +2288,15 @@ Este documento não cria essa autorização por si só.
 A FASE 7 exigirá, no fechamento:
 
 ```text
+exposure provenance TRACKED/LEGACY_UNKNOWN comprovada
++
+sessões legadas fail-closed comprovadas
++
+migration sem backfill histórico inventado comprovada
++
 policy precommit com exposure watermark não rebobinável comprovado
 +
-reset sem backdating comprovado
+reset sem backdating/promote comprovado
 +
 contrato implementado
 +
@@ -2035,11 +2346,22 @@ Somente então a FASE 8 poderá ser autorizada.
 ```text
 SESSION / EXPERIMENTO
         │
+        ├── EXPOSURE TRACKING STATE
+        │   ├── LEGACY_UNKNOWN
+        │   │      X policy
+        │   │      X Outcome
+        │   │      X métricas/calibration FASE 7
+        │   │      reset NÃO promove
+        │   │      nova sessão explícita é o caminho MVP
+        │   │
+        │   └── TRACKED
+        │          tracking ativo desde origem relevante
+        │
         ├── REPLAY CURSOR
         │   operacional
         │   rebobinável por reset
         │
-        └── EXPOSURE WATERMARK W
+        └── EXPOSURE WATERMARK W (TRACKED)
             baseline = session_origin_time
             monotônico
             nunca reduz com reset
@@ -2070,6 +2392,7 @@ NÃO recebe configuração arbitrária
 GROUND TRUTH PROVIDER
 reference = último fechado <= T
 + no máximo H futuros fechados <= E
+NÃO reconstrói exposure provenance
         ↓
 HORIZON GATE
 sem H completo → nenhum Outcome
