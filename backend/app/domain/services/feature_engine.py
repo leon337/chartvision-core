@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from app.domain.models.candle import Candle
 from app.domain.models.market_features import MarketCandleDirection
 
@@ -10,3 +12,7 @@ class FeatureEngine:
         if candle.close < candle.open:
             return MarketCandleDirection.CLOSE_BELOW_OPEN
         return MarketCandleDirection.CLOSE_EQUAL_OPEN
+
+    @staticmethod
+    def candle_amplitude(candle: Candle) -> Decimal:
+        return candle.high - candle.low
