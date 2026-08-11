@@ -76,17 +76,41 @@ Abstrai o processamento visual.
 ### `StorageProvider`
 Abstrai persistência.
 
+### `OutcomeEvaluationPolicy`
+Contrato da FASE 7 para comprometer a definição do target antes do futuro avaliado poder influenciar sua escolha.
+
+No MVP:
+
+```text
+Session 1 → 0..1 OutcomeEvaluationPolicy
+```
+
+A policy contém identidade estável, `session_id`, horizonte, threshold e `bound_at`.
+
+`bound_at` é capturado do relógio lógico autoritativo da sessão no momento do registro da policy e não pode ser backdated arbitrariamente pelo chamador.
+
+Uma Analysis da sessão somente é elegível quando:
+
+```text
+policy.bound_at <= Analysis.timestamp
+```
+
+A policy é imutável. Alterar horizonte/threshold exige nova sessão/experimento no MVP; múltiplas policies por sessão são `FUTURE`.
+
+O contrato detalhado fica em `docs/outcome_evaluation.md`.
+
 ### `GroundTruthProvider`
 Contrato exclusivo da camada de avaliação posterior.
 
-Na FASE 7, deve fornecer somente a janela Ground Truth necessária para avaliar uma `Analysis` já persistida, respeitando `Analysis.timestamp`, `evaluation_as_of` e o horizonte configurado.
+Na FASE 7, deve fornecer somente a janela Ground Truth necessária para avaliar uma `Analysis` já persistida, respeitando `Analysis.timestamp`, `evaluation_as_of` e o horizonte previamente comprometido na `OutcomeEvaluationPolicy`.
 
 Ele pode ser implementado por um adapter do replay controlado, mas:
 
 - não pode ser consumido por `AnalysisEngine`;
 - não pode ser consumido por `AnalysisLabService`;
 - não pode ser consumido pelo pipeline visual;
-- não transforma Ground Truth em entrada da análise histórica.
+- não transforma Ground Truth em entrada da análise histórica;
+- não pode ser usado para escolher retrospectivamente horizonte ou threshold.
 
 O contrato detalhado fica em `docs/outcome_evaluation.md`.
 
@@ -127,26 +151,56 @@ Reconstructed Candle
    └──────────────► comparação posterior com Ground Truth
 ```
 
-A fronteira adicional da FASE 7 é:
+A fronteira temporal adicional da FASE 7 é:
 
 ```text
-Analysis(T)
+Session / experimento
    │
-   │ imutável
    ▼
-OutcomeEvaluationService
+OutcomeEvaluationPolicy
+   │  configuração imutável
+   │  bound_at do relógio lógico da sessão
    │
-   ├── Analysis persistida
-   └── GroundTruthProvider → somente janela futura autorizada
-            │
-            ▼
-      OutcomeEvaluator
-            │
-            ▼
-         Outcome
+   └──────────────► policy.bound_at <= Analysis.timestamp
+                              │
+                              ▼
+                         Analysis(T)
+                              │
+                              │ imutável
+                              ▼
+                    OutcomeEvaluationService
+                              │
+                              ├── Analysis + Policy persistidas
+                              └── GroundTruthProvider
+                                        │
+                                        ▼
+                                OutcomeEvaluator
+                                        │
+                                        ▼
+                                     Outcome
+                                        │
+                                        ▼
+                              Metrics por policy_id
 ```
 
-Ground Truth posterior pode produzir Outcome, mas nunca alterar `Analysis(T)`.
+Fluxos obrigatoriamente proibidos:
+
+```text
+Ground Truth
+   X→ AnalysisEngine
+```
+
+```text
+Ground Truth conhecido
+   X→ nova configuração retroativa para Analysis(T)
+```
+
+```text
+Outcome
+   X→ UPDATE Analysis
+```
+
+Ground Truth posterior pode permitir Outcome, mas nunca alterar `Analysis(T)` nem a policy previamente comprometida.
 
 ## Pipeline visual planejado
 
@@ -172,23 +226,31 @@ Fluxo lógico:
 
 ```text
 sessions
-   ↓
-frames
-   ↓
-observations
-   ↓
-candles
-   ↓
-features
-   ↓
-analyses
+   ├────────────► outcome_evaluation_policies
+   │                       │
+   ▼                       │
+frames                     │
+   ↓                       │
+observations               │
+   ↓                       │
+candles                    │
+   ↓                       │
+features                   │
+   ↓                       │
+analyses ◄─────────────────┘
    ↓
 outcomes
 ```
 
-Toda entidade temporal deve possuir timestamp e rastreabilidade adequada.
+No MVP da FASE 7:
 
-No MVP da FASE 7, métricas agregadas são derivadas de `Analysis + Outcome`; não é necessária tabela persistente de métricas sem nova decisão.
+- `outcome_evaluation_policies` é conceitualmente imutável e possui no máximo uma linha por sessão;
+- `outcomes` referencia `Analysis` e a policy usada;
+- o Outcome copia horizonte/threshold para auditoria, mas deve corresponder exatamente à policy;
+- métricas agregadas são derivadas de `Analysis + Outcome` dentro de um único `policy_id`;
+- não é necessária tabela persistente de métricas sem nova decisão.
+
+Toda entidade temporal deve possuir timestamp e rastreabilidade adequada.
 
 ## Regras arquiteturais obrigatórias
 
@@ -202,8 +264,12 @@ No MVP da FASE 7, métricas agregadas são derivadas de `Analysis + Outcome`; n�
 8. OutcomeEvaluator não altera análise original;
 9. Ground Truth posterior entra somente pela camada de avaliação autorizada;
 10. OutcomeEvaluator permanece desacoplado de ReplaySource e infraestrutura;
-11. uma fase não antecipa componentes da fase seguinte sem necessidade estrutural explícita;
-12. simplicidade prevalece sobre abstração prematura.
+11. definição de Outcome deve estar pré-comprometida por policy antes da Analysis elegível;
+12. policy tardia não pode tornar Analysis histórica retroativamente elegível;
+13. métricas não misturam `policy_id` diferentes no mesmo cohort;
+14. confidence calibration obedece à mesma fronteira de cohort;
+15. uma fase não antecipa componentes da fase seguinte sem necessidade estrutural explícita;
+16. simplicidade prevalece sobre abstração prematura.
 
 ## Stack congelada do v1
 
