@@ -96,8 +96,8 @@ jobs:
         run: docker compose up -d --build --wait --wait-timeout 120
       - name: Apply PostgreSQL migrations
         run: docker compose exec -T backend alembic upgrade head
-      - name: Run PostgreSQL Phase 4/5 persistence tests
-        run: docker compose exec -T -e CHARTVISION_POSTGRES_TEST_URL=postgresql+psycopg://chartvision:chartvision@postgres:5432/chartvision backend pytest -q app/tests/integration/test_session_persistence.py app/tests/integration/test_frame_persistence.py app/tests/integration/test_temporal_memory_persistence.py app/tests/integration/test_phase5_point_in_time_candles.py
+      - name: Run PostgreSQL Phase 4/5/6 persistence and point-in-time tests
+        run: docker compose exec -T -e CHARTVISION_POSTGRES_TEST_URL=postgresql+psycopg://chartvision:chartvision@postgres:5432/chartvision backend pytest -q app/tests/integration/test_session_persistence.py app/tests/integration/test_frame_persistence.py app/tests/integration/test_temporal_memory_persistence.py app/tests/integration/test_phase5_point_in_time_candles.py app/tests/integration/test_phase6_analysis_lab.py app/tests/integration/test_phase6_analysis_persistence.py
       - name: Verify migration downgrade and re-upgrade
         run: |
           docker compose exec -T backend alembic downgrade base

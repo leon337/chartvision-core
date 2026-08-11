@@ -2,6 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -264,3 +265,41 @@ class CandleSnapshotRecord(Base):
     is_closed: Mapped[bool] = mapped_column(Boolean, nullable=False)
     vision_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     source_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class AnalysisRecord(Base):
+    __tablename__ = "analyses"
+    __table_args__ = (
+        CheckConstraint(
+            "char_length(trim(analysis_id)) > 0",
+            name="ck_analyses_analysis_id_not_blank",
+        ),
+        CheckConstraint(
+            "char_length(trim(session_id)) > 0",
+            name="ck_analyses_session_id_not_blank",
+        ),
+        CheckConstraint(
+            "market_state IN ('UP', 'DOWN', 'SIDEWAYS', 'UNCERTAIN')",
+            name="ck_analyses_market_state",
+        ),
+        CheckConstraint(
+            "confidence >= 0 AND confidence <= 1",
+            name="ck_analyses_confidence_range",
+        ),
+        CheckConstraint(
+            "data_quality IS NULL OR (data_quality >= 0 AND data_quality <= 1)",
+            name="ck_analyses_data_quality_range",
+        ),
+    )
+
+    analysis_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("sessions.session_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    market_state: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    data_quality: Mapped[float | None] = mapped_column(Float, nullable=True)
+    evidence: Mapped[list[str]] = mapped_column(JSON, nullable=False)
