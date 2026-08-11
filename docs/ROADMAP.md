@@ -286,15 +286,19 @@ Progresso técnico já existente:
 - direção;
 - amplitude;
 - retorno;
-- volatilidade simples.
+- volatilidade simples;
+- HH — Higher High.
 
 Pendente dentro da FASE 5:
-- HH;
 - HL;
 - LH;
 - LL;
 - tendência básica;
 - lateralização básica.
+
+Último incremento técnico aprovado:
+- HEAD `b0b1f6d30423d01e6bbadbe0e3f25df66c52c334`;
+- CI run `#91` / `31457654795` — SUCCESS.
 
 O fechamento formal continua pendente. FASE 5 não é PASS e FASE 6 não está autorizada enquanto não houver conclusão do escopo, testes/CI/aceite finais e `chartvision-phase-close = PASS`.
 
