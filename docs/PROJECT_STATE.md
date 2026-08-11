@@ -12,8 +12,8 @@
 - **Fase atualmente em desenvolvimento:** FASE 5 — MARKET FEATURES MVP
 - **Status operacional atual:** 🟡 IN PROGRESS
 - **Branch ativa:** `phase-5-market-features-mvp`
-- **Último incremento técnico revalidado:** `11e6cf7881d6df9b90dd5d95a1eb9e6d67d58539`
-- **CI técnico revalidado:** run `#95` / `31458400354` — SUCCESS
+- **Último incremento técnico revalidado:** `0fbd34f926bbf013906c8e0547d4a2b1b6b95efd`
+- **CI técnico revalidado:** run `#99` / `31459201759` — SUCCESS
 - **Últimos PASS sequenciais:** FASE 0 — FOUNDATION; FASE 1 — REPLAY MVP; FASE 2 — VISUAL OBSERVER MVP; FASE 3 — CANDLE RECONSTRUCTION MVP; FASE 4 — TEMPORAL MEMORY MVP
 - **Próxima fase:** FASE 6 — ANALYSIS LAB MVP — bloqueada até `PHASE_CLOSE = PASS` da FASE 5
 - **Issue mestra:** `#1 — MASTER — ChartVision Core v1 Roadmap`
@@ -142,8 +142,8 @@ A FASE 5 foi aberta após o PASS formal da FASE 4 e seu lifecycle de início foi
 
 ### Estado técnico revalidado
 - branch ativa: `phase-5-market-features-mvp`;
-- último incremento técnico aprovado: `11e6cf7881d6df9b90dd5d95a1eb9e6d67d58539`;
-- CI desse incremento: run `#95` / `31458400354` — SUCCESS;
+- último incremento técnico aprovado: `0fbd34f926bbf013906c8e0547d4a2b1b6b95efd`;
+- CI desse incremento: run `#99` / `31459201759` — SUCCESS;
 - nenhuma PR aberta da FASE 5 no momento da revalidação;
 - nenhuma branch concorrente `phase-5` identificada.
 
@@ -155,10 +155,10 @@ A FASE 5 foi aberta após o PASS formal da FASE 4 e seu lifecycle de início foi
 - retorno simples close-to-close;
 - volatilidade simples populacional;
 - HH — Higher High;
-- HL — Higher Low.
+- HL — Higher Low;
+- LH — Lower High.
 
 ### Trabalho ainda pendente na FASE 5
-- LH — Lower High;
 - LL — Lower Low;
 - tendência básica;
 - lateralização básica.
@@ -175,14 +175,14 @@ A FASE 5 permanece **IN PROGRESS**. Nenhuma feature pendente é considerada impl
 | 2 — Visual Observer | ✅ PASS | Captura, detecção visual, confiança e falhas validadas |
 | 3 — Candle Reconstruction | ✅ PASS | Pixel→preço, tracking, normalização, OHLC e métricas pós-reconstrução validados |
 | 4 — Temporal Memory | ✅ PASS | PostgreSQL temporal, deduplicação, fechamento e rastreabilidade histórica validados |
-| 5 — Market Features | 🟡 IN PROGRESS | Point-in-time + direção + amplitude + retorno + volatilidade + HH + HL implementados; LH/LL/tendência/lateralização pendentes |
+| 5 — Market Features | 🟡 IN PROGRESS | Point-in-time + direção + amplitude + retorno + volatilidade + HH + HL + LH implementados; LL/tendência/lateralização pendentes |
 | 6 — Analysis Lab | 🔒 BLOCKED | Aguarda `PHASE_CLOSE = PASS` da FASE 5 |
 | 7 — Outcome Evaluation | 🔒 BLOCKED | Aguarda FASE 6 |
 | 8 — Dashboard | 🔒 BLOCKED | Aguarda FASE 7 |
 
 ## Próxima ação autorizável na fase atual
 
-O próximo item lógico previsto pelo escopo congelado é LH — Lower High. Ele **não está autorizado automaticamente** por este documento: qualquer implementação deve ocorrer somente após missão explícita e nova revalidação do estado real do GitHub.
+O próximo item lógico previsto pelo escopo congelado é LL — Lower Low. Ele **não está autorizado automaticamente** por este documento: qualquer implementação deve ocorrer somente após missão explícita e nova revalidação do estado real do GitHub.
 
 ## Regra de retomada
 
