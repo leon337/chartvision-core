@@ -76,6 +76,20 @@ Abstrai o processamento visual.
 ### `StorageProvider`
 Abstrai persistência.
 
+### `GroundTruthProvider`
+Contrato exclusivo da camada de avaliação posterior.
+
+Na FASE 7, deve fornecer somente a janela Ground Truth necessária para avaliar uma `Analysis` já persistida, respeitando `Analysis.timestamp`, `evaluation_as_of` e o horizonte configurado.
+
+Ele pode ser implementado por um adapter do replay controlado, mas:
+
+- não pode ser consumido por `AnalysisEngine`;
+- não pode ser consumido por `AnalysisLabService`;
+- não pode ser consumido pelo pipeline visual;
+- não transforma Ground Truth em entrada da análise histórica.
+
+O contrato detalhado fica em `docs/outcome_evaluation.md`.
+
 ### `OCRProvider`
 Contrato previsto para leitura textual quando necessário. Não precisa ser antecipado se a fase não exigir.
 
@@ -92,6 +106,11 @@ O leitor visual não pode acessá-los.
 ReplaySource
    │
    ├──────────────► Ground Truth Store
+   │                       │
+   │                       └────────► GroundTruthProvider
+   │                                      │
+   │                                      ▼
+   │                              Outcome Evaluation
    │
    ▼
 ChartRenderer
@@ -107,6 +126,27 @@ Reconstructed Candle
    │
    └──────────────► comparação posterior com Ground Truth
 ```
+
+A fronteira adicional da FASE 7 é:
+
+```text
+Analysis(T)
+   │
+   │ imutável
+   ▼
+OutcomeEvaluationService
+   │
+   ├── Analysis persistida
+   └── GroundTruthProvider → somente janela futura autorizada
+            │
+            ▼
+      OutcomeEvaluator
+            │
+            ▼
+         Outcome
+```
+
+Ground Truth posterior pode produzir Outcome, mas nunca alterar `Analysis(T)`.
 
 ## Pipeline visual planejado
 
@@ -148,6 +188,8 @@ outcomes
 
 Toda entidade temporal deve possuir timestamp e rastreabilidade adequada.
 
+No MVP da FASE 7, métricas agregadas são derivadas de `Analysis + Outcome`; não é necessária tabela persistente de métricas sem nova decisão.
+
 ## Regras arquiteturais obrigatórias
 
 1. domínio não depende de infraestrutura;
@@ -158,8 +200,10 @@ Toda entidade temporal deve possuir timestamp e rastreabilidade adequada.
 6. dados ausentes não são inventados;
 7. AnalysisEngine não acessa futuro;
 8. OutcomeEvaluator não altera análise original;
-9. uma fase não antecipa componentes da fase seguinte sem necessidade estrutural explícita;
-10. simplicidade prevalece sobre abstração prematura.
+9. Ground Truth posterior entra somente pela camada de avaliação autorizada;
+10. OutcomeEvaluator permanece desacoplado de ReplaySource e infraestrutura;
+11. uma fase não antecipa componentes da fase seguinte sem necessidade estrutural explícita;
+12. simplicidade prevalece sobre abstração prematura.
 
 ## Stack congelada do v1
 
