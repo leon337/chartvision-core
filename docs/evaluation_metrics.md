@@ -46,7 +46,9 @@ docs/outcome_evaluation.md
 
 Esse documento é a autoridade para:
 
-- definição de `Outcome` e `OutcomeConfig`;
+- definição de `Outcome`, `OutcomeConfig` e `OutcomeEvaluationPolicy`;
+- precommit temporal da configuração;
+- identidade e imutabilidade da policy;
 - horizonte temporal;
 - Ground Truth boundary;
 - `RealizedState`;
@@ -55,18 +57,22 @@ Esse documento é a autoridade para:
 - uncertain count/frequency;
 - confidence calibration diagnóstica;
 - persistência, identidade e idempotência;
+- cohort métrico homogêneo;
 - critérios de aceite e test plan.
 
 ### Princípio de imutabilidade
 
 Uma `Analysis` registrada não pode ser alterada após conhecer o futuro.
 
+A definição do target também não pode ser escolhida retroativamente. Horizonte e threshold devem estar comprometidos em uma `OutcomeEvaluationPolicy` imutável antes da Analysis elegível, conforme a regra temporal canônica em `docs/outcome_evaluation.md`.
+
 O futuro somente pode ser associado posteriormente pelo Outcome Evaluation, preservando:
 - classificação original;
 - confidence original;
 - evidências originais;
 - qualidade de dados original;
-- timestamp original.
+- timestamp original;
+- policy/configuração previamente comprometida.
 
 ### Classes
 
@@ -103,11 +109,37 @@ A FASE 7 deve produzir:
 
 As fórmulas, denominadores, ordem das classes e comportamento de denominador zero estão definidos exclusivamente em `docs/outcome_evaluation.md` para evitar duplicação normativa divergente.
 
-## Regra contra future leakage
+## Cohort métrico obrigatório
+
+Toda métrica agregada da FASE 7 é válida somente dentro de um target homogêneo.
+
+Contrato canônico:
+
+```text
+Metrics Cohort = exatamente um OutcomeEvaluationPolicy.policy_id
+```
+
+Portanto, confusion matrix, accuracy, precision, recall, coverage, uncertain frequency e confidence calibration não podem combinar Outcomes de policies diferentes.
+
+Cada relatório deve identificar a policy/configuração do cohort, incluindo pelo menos:
+
+```text
+policy_id
+horizon_closed_candles
+realized_return_threshold
+```
+
+Entrada contendo Outcomes de policies diferentes deve falhar explicitamente antes de qualquer agregação, ou ser previamente separada em relatórios independentes. O MVP canônico escolhe falha explícita para uma entrada mista; não existe soma silenciosa de cohorts heterogêneos.
+
+Confidence calibration obedece à mesma fronteira: os cinco bins e o `weighted_alignment_gap` são calculados dentro de um único `policy_id`.
+
+## Regra contra future leakage e hindsight bias
 
 Nenhum dado posterior ao timestamp de uma Analysis pode ser usado para produzir aquela Analysis.
 
-A informação posterior somente entra na camada de Outcome Evaluation após o registro imutável da Analysis e respeitando o corte `evaluation_as_of` e o horizonte descritos em `docs/outcome_evaluation.md`.
+A informação posterior somente entra na camada de Outcome Evaluation após o registro imutável da Analysis e respeitando o corte `evaluation_as_of` e o horizonte comprometido pela policy.
+
+Também é proibido observar o futuro e depois escolher retroativamente `horizon_closed_candles` ou `realized_return_threshold` para modificar o significado do Outcome de uma Analysis histórica.
 
 ## Interpretação
 
@@ -115,6 +147,6 @@ O objetivo do v1 é medir:
 1. qualidade da percepção;
 2. integridade da memória temporal;
 3. consistência da classificação;
-4. capacidade de verificar resultados.
+4. capacidade de verificar resultados sob target experimental previamente comprometido.
 
 Rentabilidade financeira não é critério de sucesso do v1.
