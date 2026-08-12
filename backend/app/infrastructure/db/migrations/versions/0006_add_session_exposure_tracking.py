@@ -1,13 +1,13 @@
 """add Phase 7 session exposure provenance
 
-Revision ID: 0006_add_session_exposure_tracking
+Revision ID: 0006_session_exposure
 Revises: 0005_create_analyses
 """
 
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0006_add_session_exposure_tracking"
+revision = "0006_session_exposure"
 down_revision = "0005_create_analyses"
 branch_labels = None
 depends_on = None

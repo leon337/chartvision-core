@@ -1,14 +1,14 @@
 """create Phase 7 outcome evaluation policies
 
 Revision ID: 0007_create_outcome_policies
-Revises: 0006_add_session_exposure_tracking
+Revises: 0006_session_exposure
 """
 
 from alembic import op
 import sqlalchemy as sa
 
 revision = "0007_create_outcome_policies"
-down_revision = "0006_add_session_exposure_tracking"
+down_revision = "0006_session_exposure"
 branch_labels = None
 depends_on = None
 
