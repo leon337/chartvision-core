@@ -38,6 +38,15 @@ def _pair(
         data_quality=confidence,
         evidence=("STATE_RULE=TEST",),
     )
+    if realized is RealizedState.UP:
+        final_close = Decimal("102")
+        realized_return = Decimal("0.02")
+    elif realized is RealizedState.DOWN:
+        final_close = Decimal("98")
+        realized_return = Decimal("-0.02")
+    else:
+        final_close = Decimal("100.5")
+        realized_return = Decimal("0.005")
     outcome = Outcome(
         analysis_id=identity,
         policy_id=policy_id,
@@ -47,10 +56,10 @@ def _pair(
         reference_close=Decimal("100"),
         final_candle_open_time=T0 + timedelta(minutes=3),
         final_candle_close_time=T0 + timedelta(minutes=4),
-        final_close=Decimal("102"),
+        final_close=final_close,
         horizon_closed_candles=3,
         realized_return_threshold=Decimal("0.01"),
-        realized_return=Decimal("0.02"),
+        realized_return=realized_return,
         realized_state=realized,
         evidence=("OUTCOME_RULE=TEST",),
     )

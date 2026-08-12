@@ -141,7 +141,7 @@ def test_identical_outcome_is_idempotent(repository, engine) -> None:
 def test_conflicting_outcome_for_same_analysis_is_rejected(repository) -> None:
     _, _, outcome = _setup(repository, session_id="conflict")
     repository.save_outcome(outcome)
-    conflicting = replace(outcome, final_close=Decimal("103"))
+    conflicting = replace(outcome, evidence=outcome.evidence + ("EXTRA=CONFLICT",))
 
     with pytest.raises(OutcomeConflictError):
         repository.save_outcome(conflicting)
