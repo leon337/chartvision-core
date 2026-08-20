@@ -104,20 +104,21 @@ def test_direct_tracked_adapter_construction_is_rejected() -> None:
         )
 
 
-def test_policy_registration_cannot_observe_pre_exposure_watermark_during_advance() -> None:
+def test_policy_registration_cannot_observe_pre_exposure_watermark_across_wrappers() -> None:
     storage = FakeLifecycleStorage()
-    tracked = ReplaySessionFactory(storage).from_candles(_candles())
-    tracked.start()
+    first = ReplaySessionFactory(storage).from_candles(_candles())
+    second = ReplaySessionFactory(storage).from_candles(_candles())
+    first.start()
     storage.block_advanced_exposure = True
 
-    advance_thread = Thread(target=lambda: tracked.advance(seconds=180))
+    advance_thread = Thread(target=lambda: first.advance(seconds=180))
     advance_thread.start()
     assert storage.exposure_entered.wait(timeout=2)
 
     policies = []
     policy_thread = Thread(
         target=lambda: policies.append(
-            tracked.register_policy(
+            second.register_policy(
                 policy_id="policy-1",
                 config=OutcomeConfig(3, Decimal("0.01")),
             )

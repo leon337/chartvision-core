@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from threading import RLock
+from threading import Lock, RLock
 
 from app.domain.interfaces.outcome_storage_provider import OutcomeStorageProvider
 from app.domain.models.outcome import OutcomeConfig, OutcomeEvaluationPolicy
@@ -8,6 +8,17 @@ from app.infrastructure.replay.replay_source import ReplaySnapshot, ReplaySource
 
 
 _FACTORY_TOKEN = object()
+_SESSION_LOCKS_GUARD = Lock()
+_SESSION_LOCKS: dict[str, RLock] = {}
+
+
+def _lock_for_session(session_id: str) -> RLock:
+    with _SESSION_LOCKS_GUARD:
+        lock = _SESSION_LOCKS.get(session_id)
+        if lock is None:
+            lock = RLock()
+            _SESSION_LOCKS[session_id] = lock
+        return lock
 
 
 class ExposureTrackedReplay:
@@ -26,7 +37,7 @@ class ExposureTrackedReplay:
         self._session_id = session_id
         self._replay_source = replay_source
         self._storage = storage
-        self._lock = RLock()
+        self._lock = _lock_for_session(session_id)
 
     @classmethod
     def _from_factory(
