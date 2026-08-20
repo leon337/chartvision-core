@@ -1,14 +1,20 @@
 from datetime import datetime
 from pathlib import Path
+from threading import Lock
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
-from app.infrastructure.replay import ReplaySource, ReplayStatus
+from app.infrastructure.db.session import SessionLocal
+from app.infrastructure.replay import ExposureTrackedReplay, ReplaySessionFactory, ReplayStatus
+from app.infrastructure.storage.phase7_outcome_postgres_repository import (
+    Phase7OutcomePostgresStorageRepository,
+)
 
 
 DATASET_PATH = Path(__file__).resolve().parents[4] / "dataset" / "sample_replay.json"
-replay_source = ReplaySource.from_json(DATASET_PATH)
+_replay_session: ExposureTrackedReplay | None = None
+_replay_init_lock = Lock()
 
 router = APIRouter(prefix="/replay", tags=["replay"])
 
@@ -32,8 +38,19 @@ class ReplayStateResponse(BaseModel):
     candles: list[ReplayCandleResponse]
 
 
+def _get_replay_session() -> ExposureTrackedReplay:
+    global _replay_session
+    if _replay_session is None:
+        with _replay_init_lock:
+            if _replay_session is None:
+                repository = Phase7OutcomePostgresStorageRepository(session_factory=SessionLocal)
+                _replay_session = ReplaySessionFactory(repository).from_json(DATASET_PATH)
+    return _replay_session
+
+
 def _state_response() -> ReplayStateResponse:
-    snapshot = replay_source.snapshot
+    replay = _get_replay_session()
+    snapshot = replay.snapshot
     candles = [
         ReplayCandleResponse(
             open_time=candle.open_time,
@@ -47,8 +64,8 @@ def _state_response() -> ReplayStateResponse:
     ]
     return ReplayStateResponse(
         status=snapshot.status,
-        asset=replay_source.asset,
-        timeframe=replay_source.timeframe,
+        asset=replay.asset,
+        timeframe=replay.timeframe,
         position=snapshot.position,
         total=snapshot.total,
         current_time=snapshot.current_time,
@@ -63,25 +80,25 @@ def get_replay_state() -> ReplayStateResponse:
 
 @router.post("/start", response_model=ReplayStateResponse)
 def start_replay() -> ReplayStateResponse:
-    replay_source.start()
+    _get_replay_session().start()
     return _state_response()
 
 
 @router.post("/pause", response_model=ReplayStateResponse)
 def pause_replay() -> ReplayStateResponse:
-    replay_source.pause()
+    _get_replay_session().pause()
     return _state_response()
 
 
 @router.post("/resume", response_model=ReplayStateResponse)
 def resume_replay() -> ReplayStateResponse:
-    replay_source.resume()
+    _get_replay_session().resume()
     return _state_response()
 
 
 @router.post("/reset", response_model=ReplayStateResponse)
 def reset_replay() -> ReplayStateResponse:
-    replay_source.reset()
+    _get_replay_session().reset()
     return _state_response()
 
 
@@ -89,5 +106,5 @@ def reset_replay() -> ReplayStateResponse:
 def advance_replay(
     seconds: int = Query(default=60, gt=0, le=3600),
 ) -> ReplayStateResponse:
-    replay_source.advance(seconds=seconds)
+    _get_replay_session().advance(seconds=seconds)
     return _state_response()
