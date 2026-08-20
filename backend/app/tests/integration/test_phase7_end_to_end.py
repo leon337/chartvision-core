@@ -9,6 +9,7 @@ from alembic.config import Config
 from sqlalchemy import create_engine, delete
 from sqlalchemy.orm import sessionmaker
 
+from app.domain.interfaces.storage_provider import SessionConflictError
 from app.domain.models.analysis import Analysis, MarketState
 from app.domain.models.candle import Candle
 from app.domain.models.outcome import ExposureTrackingState, OutcomeConfig
@@ -192,6 +193,20 @@ def test_restart_with_new_repository_instance_preserves_watermark_for_policy(eng
     assert state.tracking_state is ExposureTrackingState.TRACKED
     assert state.session_origin_time == T0
     assert state.session_exposure_watermark == T0 + timedelta(minutes=3)
+
+
+def test_legacy_session_cannot_be_promoted_through_tracked_factory(repository) -> None:
+    session_id = "phase7-legacy-no-promotion"
+    repository.save_session(_session(session_id))
+
+    with pytest.raises(SessionConflictError, match="incompatible provenance"):
+        ReplaySessionFactory(repository).from_candles(_candles(session_id))
+
+    state = repository.get_session_exposure_state(session_id)
+    assert state is not None
+    assert state.tracking_state is ExposureTrackingState.LEGACY_UNKNOWN
+    assert state.session_origin_time is None
+    assert state.session_exposure_watermark is None
 
 
 def test_legacy_session_and_new_tracked_session_remain_independent(repository) -> None:
