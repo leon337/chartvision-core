@@ -14,7 +14,7 @@ from app.infrastructure.storage.postgres_repository import PostgresStorageReposi
 class OutcomePostgresStorageRepository(PostgresStorageRepository):
     """Phase 7 PostgreSQL extensions without changing legacy Session semantics."""
 
-    def save_tracked_session(
+    def _initialize_tracked_session(
         self,
         session: Session,
         *,

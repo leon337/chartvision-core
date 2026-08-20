@@ -48,10 +48,20 @@ def test_ground_truth_is_not_used_to_reconstruct_exposure_provenance() -> None:
         "infrastructure/storage/outcome_postgres_repository.py",
         "infrastructure/storage/phase7_postgres_repository.py",
         "infrastructure/replay/exposure_tracked_replay.py",
+        "infrastructure/replay/replay_session_factory.py",
     ):
         source = _source(relative_path)
         assert "GroundTruthProvider" not in source
         assert "ground_truth_provider" not in source
+
+
+def test_replay_api_cannot_bypass_tracked_lifecycle_with_raw_replay_source() -> None:
+    source = _source("api/routes/replay.py")
+
+    assert "ReplaySessionFactory" in source
+    assert "ReplaySource" not in source
+    assert "_get_replay_session().advance" in source
+    assert "_get_replay_session().reset" in source
 
 
 def test_visual_pipeline_remains_isolated_from_ground_truth() -> None:

@@ -63,7 +63,7 @@ def _setup(repository, *, session_id: str = "session-1"):
         timeframe="1m",
         started_at=origin,
     )
-    repository.save_tracked_session(session, session_origin_time=origin)
+    repository._initialize_tracked_session(session, session_origin_time=origin)
     policy = repository.register_outcome_evaluation_policy(
         session_id=session_id,
         policy_id=f"policy-{session_id}",

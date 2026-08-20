@@ -20,7 +20,7 @@ class OutcomeConflictError(ValueError):
 
 
 class OutcomeStorageProvider(StorageProvider, Protocol):
-    def save_tracked_session(
+    def _initialize_tracked_session(
         self,
         session: Session,
         *,

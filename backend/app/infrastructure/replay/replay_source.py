@@ -93,6 +93,18 @@ class ReplaySource:
         return cls(candles)
 
     @property
+    def source_id(self) -> str:
+        return self._candles[0].source_id
+
+    @property
+    def session_id(self) -> str:
+        return self._candles[0].session_id
+
+    @property
+    def origin_time(self) -> datetime:
+        return self._candles[0].open_time
+
+    @property
     def asset(self) -> str:
         return self._candles[0].asset
 
@@ -184,6 +196,8 @@ class ReplaySource:
         for candle in self._candles:
             if candle.asset != first.asset or candle.timeframe != first.timeframe:
                 raise ValueError("Replay candles must share asset and timeframe")
+            if candle.source_id != first.source_id or candle.session_id != first.session_id:
+                raise ValueError("Replay candles must share source and session")
             if candle.timeframe != "1m":
                 raise ValueError("Replay MVP supports only the 1m timeframe")
             if candle.open_time.tzinfo is None or candle.close_time.tzinfo is None:

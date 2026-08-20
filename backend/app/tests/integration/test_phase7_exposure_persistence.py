@@ -79,7 +79,7 @@ def test_tracked_session_starts_at_deterministic_origin(repositories) -> None:
     _, repository = repositories
     origin = datetime(2026, 8, 12, 10, 0, tzinfo=timezone.utc)
 
-    repository.save_tracked_session(_session("tracked-session"), session_origin_time=origin)
+    repository._initialize_tracked_session(_session("tracked-session"), session_origin_time=origin)
     state = repository.get_session_exposure_state("tracked-session")
 
     assert state is not None
@@ -91,7 +91,7 @@ def test_tracked_session_starts_at_deterministic_origin(repositories) -> None:
 def test_exposure_watermark_is_monotonic_and_lower_replay_does_not_rewind(repositories) -> None:
     _, repository = repositories
     origin = datetime(2026, 8, 12, 10, 0, tzinfo=timezone.utc)
-    repository.save_tracked_session(_session("monotonic"), session_origin_time=origin)
+    repository._initialize_tracked_session(_session("monotonic"), session_origin_time=origin)
 
     high = repository.record_session_exposure("monotonic", origin + timedelta(minutes=30))
     lower = repository.record_session_exposure("monotonic", origin + timedelta(minutes=15))
@@ -103,14 +103,14 @@ def test_exposure_watermark_is_monotonic_and_lower_replay_does_not_rewind(reposi
     assert repository.get_session_exposure_state("monotonic") == higher
 
 
-def test_reinvoking_tracked_session_save_never_resets_advanced_watermark(repositories) -> None:
+def test_reinvoking_tracked_session_init_never_resets_advanced_watermark(repositories) -> None:
     _, repository = repositories
     origin = datetime(2026, 8, 12, 10, 0, tzinfo=timezone.utc)
     session = _session("restart-safe")
-    repository.save_tracked_session(session, session_origin_time=origin)
+    repository._initialize_tracked_session(session, session_origin_time=origin)
     repository.record_session_exposure("restart-safe", origin + timedelta(minutes=30))
 
-    repository.save_tracked_session(session, session_origin_time=origin)
+    repository._initialize_tracked_session(session, session_origin_time=origin)
     state = repository.get_session_exposure_state("restart-safe")
 
     assert state is not None
@@ -120,13 +120,13 @@ def test_reinvoking_tracked_session_save_never_resets_advanced_watermark(reposit
 def test_naive_origin_and_exposure_are_rejected(repositories) -> None:
     _, repository = repositories
     with pytest.raises(ValueError, match="session_origin_time must be timezone-aware"):
-        repository.save_tracked_session(
+        repository._initialize_tracked_session(
             _session("naive-origin"),
             session_origin_time=datetime(2026, 8, 12, 10, 0),
         )
 
     origin = datetime(2026, 8, 12, 10, 0, tzinfo=timezone.utc)
-    repository.save_tracked_session(_session("naive-exposure"), session_origin_time=origin)
+    repository._initialize_tracked_session(_session("naive-exposure"), session_origin_time=origin)
     with pytest.raises(ValueError, match="exposed_at must be timezone-aware"):
         repository.record_session_exposure(
             "naive-exposure",
