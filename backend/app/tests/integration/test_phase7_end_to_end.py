@@ -11,16 +11,15 @@ from sqlalchemy.orm import sessionmaker
 
 from app.domain.models.analysis import Analysis, MarketState
 from app.domain.models.candle import Candle
-from app.domain.models.outcome import OutcomeConfig
+from app.domain.models.outcome import ExposureTrackingState, OutcomeConfig
 from app.domain.models.outcome_evaluation import OutcomeAvailability
 from app.domain.models.session import Session
 from app.domain.services.outcome_evaluation_service import OutcomeEvaluationService
 from app.domain.services.outcome_metrics_service import OutcomeMetricsService
 from app.infrastructure.db.models import AnalysisRecord, SessionRecord
 from app.infrastructure.db.phase7_models import OutcomeEvaluationPolicyRecord, OutcomeRecord
-from app.infrastructure.replay.exposure_tracked_replay import ExposureTrackedReplay
 from app.infrastructure.replay.ground_truth_provider import ReplayGroundTruthProvider
-from app.infrastructure.replay.replay_source import ReplaySource
+from app.infrastructure.replay.replay_session_factory import ReplaySessionFactory
 from app.infrastructure.storage.phase7_outcome_postgres_repository import (
     Phase7OutcomePostgresStorageRepository,
 )
@@ -107,9 +106,8 @@ def _analysis(session_id: str, analysis_id: str, timestamp: datetime) -> Analysi
 
 def test_pending_then_available_persists_outcome_and_metrics_without_mutating_analysis(repository) -> None:
     session_id = "phase7-e2e"
-    repository.save_tracked_session(_session(session_id), session_origin_time=T0)
-    policy = repository.register_outcome_evaluation_policy(
-        session_id=session_id,
+    tracked = ReplaySessionFactory(repository).from_candles(_candles(session_id, 6))
+    policy = tracked.register_policy(
         policy_id="phase7-e2e-policy",
         config=OutcomeConfig(3, Decimal("0.01")),
     )
@@ -143,13 +141,7 @@ def test_pending_then_available_persists_outcome_and_metrics_without_mutating_an
 def test_future_exposed_then_reset_cannot_backdate_policy_for_historical_analysis(repository) -> None:
     session_id = "phase7-reset-proof"
     candles = _candles(session_id)
-    repository.save_tracked_session(_session(session_id), session_origin_time=T0)
-    replay = ReplaySource(candles)
-    tracked = ExposureTrackedReplay(
-        session_id=session_id,
-        replay_source=replay,
-        storage=repository,
-    )
+    tracked = ReplaySessionFactory(repository).from_candles(candles)
     tracked.start()
     tracked.advance(seconds=180)
     assert repository.get_session_exposure_state(session_id).session_exposure_watermark == (
@@ -157,8 +149,7 @@ def test_future_exposed_then_reset_cannot_backdate_policy_for_historical_analysi
     )
 
     tracked.reset()
-    policy = repository.register_outcome_evaluation_policy(
-        session_id=session_id,
+    policy = tracked.register_policy(
         policy_id="phase7-reset-policy",
         config=OutcomeConfig(2, Decimal("0.01")),
     )
@@ -177,6 +168,47 @@ def test_future_exposed_then_reset_cannot_backdate_policy_for_historical_analysi
     assert repository.get_session_exposure_state(session_id).session_exposure_watermark == (
         T0 + timedelta(minutes=3)
     )
+
+
+def test_restart_with_new_repository_instance_preserves_watermark_for_policy(engine, repository) -> None:
+    session_id = "phase7-restart-proof"
+    candles = _candles(session_id)
+    first = ReplaySessionFactory(repository).from_candles(candles)
+    first.start()
+    first.advance(seconds=180)
+
+    restarted_repository = Phase7OutcomePostgresStorageRepository(
+        session_factory=sessionmaker(bind=engine, expire_on_commit=False)
+    )
+    restarted = ReplaySessionFactory(restarted_repository).from_candles(candles)
+    policy = restarted.register_policy(
+        policy_id="phase7-restart-policy",
+        config=OutcomeConfig(2, Decimal("0.01")),
+    )
+
+    assert policy.bound_at == T0 + timedelta(minutes=3)
+    state = restarted_repository.get_session_exposure_state(session_id)
+    assert state is not None
+    assert state.tracking_state is ExposureTrackingState.TRACKED
+    assert state.session_origin_time == T0
+    assert state.session_exposure_watermark == T0 + timedelta(minutes=3)
+
+
+def test_legacy_session_and_new_tracked_session_remain_independent(repository) -> None:
+    repository.save_session(_session("phase7-legacy-independent"))
+    tracked = ReplaySessionFactory(repository).from_candles(_candles("phase7-fresh-tracked"))
+    policy = tracked.register_policy(
+        policy_id="phase7-fresh-policy",
+        config=OutcomeConfig(2, Decimal("0.01")),
+    )
+
+    legacy_state = repository.get_session_exposure_state("phase7-legacy-independent")
+    tracked_state = repository.get_session_exposure_state("phase7-fresh-tracked")
+    assert legacy_state is not None
+    assert legacy_state.tracking_state is ExposureTrackingState.LEGACY_UNKNOWN
+    assert tracked_state is not None
+    assert tracked_state.tracking_state is ExposureTrackingState.TRACKED
+    assert policy.bound_at == T0
 
 
 def test_legacy_analysis_is_preserved_but_ineligible_for_outcome(repository) -> None:
