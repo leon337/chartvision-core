@@ -67,7 +67,7 @@ def _session(session_id: str) -> Session:
 def test_policy_captures_authoritative_watermark(repositories) -> None:
     _, repository = repositories
     origin = datetime(2026, 8, 12, 10, 0, tzinfo=timezone.utc)
-    repository.save_tracked_session(_session("policy-session"), session_origin_time=origin)
+    repository._initialize_tracked_session(_session("policy-session"), session_origin_time=origin)
     watermark = origin + timedelta(minutes=30)
     repository.record_session_exposure("policy-session", watermark)
 
@@ -99,7 +99,7 @@ def test_legacy_session_cannot_register_policy(repositories) -> None:
 def test_identical_policy_is_idempotent_and_does_not_rebind_after_more_exposure(repositories) -> None:
     _, repository = repositories
     origin = datetime(2026, 8, 12, 10, 0, tzinfo=timezone.utc)
-    repository.save_tracked_session(_session("idempotent-policy"), session_origin_time=origin)
+    repository._initialize_tracked_session(_session("idempotent-policy"), session_origin_time=origin)
     first_watermark = origin + timedelta(minutes=10)
     repository.record_session_exposure("idempotent-policy", first_watermark)
     config = OutcomeConfig(4, Decimal("0.0123456789012345678901234567"))
@@ -124,7 +124,7 @@ def test_identical_policy_is_idempotent_and_does_not_rebind_after_more_exposure(
 def test_same_policy_id_with_different_config_conflicts(repositories) -> None:
     _, repository = repositories
     origin = datetime(2026, 8, 12, 10, 0, tzinfo=timezone.utc)
-    repository.save_tracked_session(_session("policy-conflict"), session_origin_time=origin)
+    repository._initialize_tracked_session(_session("policy-conflict"), session_origin_time=origin)
     repository.register_outcome_evaluation_policy(
         session_id="policy-conflict",
         policy_id="policy-conflict-id",
@@ -142,7 +142,7 @@ def test_same_policy_id_with_different_config_conflicts(repositories) -> None:
 def test_second_policy_for_same_session_conflicts(repositories) -> None:
     _, repository = repositories
     origin = datetime(2026, 8, 12, 10, 0, tzinfo=timezone.utc)
-    repository.save_tracked_session(_session("single-policy"), session_origin_time=origin)
+    repository._initialize_tracked_session(_session("single-policy"), session_origin_time=origin)
     repository.register_outcome_evaluation_policy(
         session_id="single-policy",
         policy_id="policy-a",
