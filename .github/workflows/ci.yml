@@ -56,6 +56,24 @@ jobs:
 
   backend:
     runs-on: ubuntu-latest
+    # The replay API now persists Phase 7 exposure; this job must provide the
+    # same database boundary used by the production adapter, not a fake store.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: chartvision
+          POSTGRES_PASSWORD: chartvision
+          POSTGRES_DB: chartvision
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chartvision -d chartvision"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://chartvision:chartvision@localhost:5432/chartvision
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -67,6 +85,9 @@ jobs:
       - name: Lint backend
         working-directory: backend
         run: ruff check app
+      - name: Apply PostgreSQL migrations before replay API tests
+        working-directory: backend
+        run: alembic upgrade head
       - name: Test backend
         working-directory: backend
         env:
